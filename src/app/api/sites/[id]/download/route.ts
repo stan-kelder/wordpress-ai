@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { NextRequest } from "next/server"
-import archiver from "archiver"
+import { zipSync, strToU8 } from "fflate"
 import { readFile } from "fs/promises"
 import path from "path"
 
@@ -26,7 +26,6 @@ export async function GET(
     process.env.NEXT_PUBLIC_APP_URL ??
     "http://localhost:3000"
 
-  // Read the plugin template
   const templatePath = path.join(process.cwd(), "connector-plugin", "wordpress-ai-connector.php")
   const template = await readFile(templatePath, "utf-8")
 
@@ -34,28 +33,16 @@ export async function GET(
     .replace(/\{\{API_KEY\}\}/g, site.apiKey)
     .replace(/\{\{CLOUD_URL\}\}/g, cloudUrl)
 
-  // Build zip in memory using archiver
-  const chunks: Buffer[] = []
-
-  await new Promise<void>((resolve, reject) => {
-    const archive = archiver("zip", { zlib: { level: 9 } })
-
-    archive.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)))
-    archive.on("end", resolve)
-    archive.on("error", reject)
-
-    archive.append(pluginContent, { name: "wordpress-ai-connector/wordpress-ai-connector.php" })
-    archive.finalize()
+  const zipped = zipSync({
+    "wordpress-ai-connector/wordpress-ai-connector.php": strToU8(pluginContent),
   })
 
-  const zipBuffer = Buffer.concat(chunks)
-
-  return new Response(zipBuffer, {
+  return new Response(zipped, {
     status: 200,
     headers: {
       "Content-Type": "application/zip",
-      "Content-Disposition": "attachment; filename=\"wordpress-ai-connector.zip\"",
-      "Content-Length": String(zipBuffer.byteLength),
+      "Content-Disposition": 'attachment; filename="wordpress-ai-connector.zip"',
+      "Content-Length": String(zipped.byteLength),
     },
   })
 }
