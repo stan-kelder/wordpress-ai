@@ -754,6 +754,11 @@ function wordpress_ai_execute( WP_REST_Request $request ): WP_REST_Response {
             return new WP_REST_Response( array( 'error' => 'eval() is not permitted inside executed code.' ), 403 );
         }
 
+        // Strip PHP open/close tags — eval() doesn't accept them
+        $code = trim( $code );
+        $code = preg_replace( '/^<\?php\s*/i', '', $code );
+        $code = preg_replace( '/\s*\?>$/', '', $code );
+
         ob_start();
         try {
             // Wrap in a function to capture return values
