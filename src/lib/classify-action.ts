@@ -5,23 +5,38 @@ export interface Instruction {
   params: Record<string, unknown>
 }
 
-const HIGH_RISK_OPTION_KEYS = [
-  "admin_email",
-  "blogdescription",
-  "siteurl",
-  "home",
-]
+const LOW_RISK_ACTIONS = new Set([
+  "create_page",
+  "update_page",
+  "create_post",
+  "update_post",
+  "add_menu_item",
+  "update_menu_item",
+  "remove_menu_item",
+  "update_product",
+  "create_product",
+])
+
+const HIGH_RISK_ACTIONS = new Set([
+  "delete_page",
+  "delete_post",
+  "create_user",
+  "update_user_role",
+  "update_setting",
+])
 
 export function classifyAction(instruction: Instruction): RiskLevel {
-  const { action, params } = instruction
+  const { action } = instruction
   const actionLower = action.toLowerCase()
 
-  // Safe create_page operations
-  if (action === "create_page") {
-    const status = params?.status
-    if (status === "publish" || status === "draft") {
-      return "low"
-    }
+  // Explicitly low-risk actions
+  if (LOW_RISK_ACTIONS.has(action)) {
+    return "low"
+  }
+
+  // Explicitly high-risk actions
+  if (HIGH_RISK_ACTIONS.has(action)) {
+    return "high"
   }
 
   // Anything related to deletion
@@ -38,15 +53,12 @@ export function classifyAction(instruction: Instruction): RiskLevel {
     return "high"
   }
 
-  // Options with sensitive keys
-  if (actionLower.includes("option")) {
-    const paramKeys = Object.keys(params ?? {})
-    const hasHighRiskKey = paramKeys.some((k) =>
-      HIGH_RISK_OPTION_KEYS.includes(k.toLowerCase())
-    )
-    if (hasHighRiskKey) {
-      return "high"
-    }
+  // Settings / options
+  if (
+    actionLower.includes("setting") ||
+    actionLower.includes("option")
+  ) {
+    return "high"
   }
 
   // PHP execution
@@ -59,10 +71,5 @@ export function classifyAction(instruction: Instruction): RiskLevel {
   }
 
   // Unknown actions — fail safe
-  if (action !== "create_page") {
-    return "high"
-  }
-
-  // Default for unrecognised create_page variants
   return "high"
 }

@@ -12,18 +12,50 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
-const SYSTEM_PROMPT = `You are an AI assistant that helps users manage their WordPress website through natural language.
+const SYSTEM_PROMPT = `You are an AI assistant that helps users manage their entire WordPress website through natural language.
 
-When the user asks you to make a change, you MUST respond with:
+When the user asks you to make a change, respond with:
 1. A brief conversational explanation of what you're going to do
 2. A JSON instruction block wrapped in \`\`\`json ... \`\`\` that describes the action
 
-Available actions:
-- create_page: { "action": "create_page", "params": { "title": string, "content": string, "status": "publish"|"draft" } }
+AVAILABLE ACTIONS:
 
-You have access to a tool called list_pages to see existing pages on the site.
+Pages:
+- create_page: {"action":"create_page","params":{"title":string,"content":string,"status":"publish"|"draft"}}
+- update_page: {"action":"update_page","params":{"id":number,"title":string,"content":string,"status":"publish"|"draft"}}
+- delete_page: {"action":"delete_page","params":{"id":number}}
 
-Always be helpful and concise. If you're unsure what the user wants, ask for clarification.`
+Posts:
+- create_post: {"action":"create_post","params":{"title":string,"content":string,"status":"publish"|"draft","category":string}}
+- update_post: {"action":"update_post","params":{"id":number,"title":string,"content":string,"status":"publish"|"draft"}}
+- delete_post: {"action":"delete_post","params":{"id":number}}
+
+Menus:
+- update_menu_item: {"action":"update_menu_item","params":{"menu_id":number,"item_id":number,"title":string,"url":string}}
+- add_menu_item: {"action":"add_menu_item","params":{"menu_id":number,"title":string,"url":string,"object_type":"custom"|"page","object_id":number}}
+- remove_menu_item: {"action":"remove_menu_item","params":{"menu_id":number,"item_id":number}}
+
+WordPress Settings:
+- update_setting: {"action":"update_setting","params":{"option":string,"value":string}}
+
+WooCommerce:
+- update_product: {"action":"update_product","params":{"id":number,"name":string,"price":string,"description":string,"status":"publish"|"draft"}}
+- create_product: {"action":"create_product","params":{"name":string,"price":string,"description":string,"status":"publish"|"draft"}}
+
+Users:
+- create_user: {"action":"create_user","params":{"username":string,"email":string,"role":"subscriber"|"contributor"|"author"|"editor"|"administrator","password":string}}
+- update_user_role: {"action":"update_user_role","params":{"user_id":number,"role":"subscriber"|"contributor"|"author"|"editor"|"administrator"}}
+
+AVAILABLE QUERY TOOLS:
+- list_pages: lists all published pages
+- list_posts: lists recent posts
+- get_active_plugins: lists installed/active plugins
+- get_menu_structure: returns all menus and their items
+- get_woocommerce_products: lists WooCommerce products (only if WooCommerce is active)
+- get_site_settings: returns key WordPress settings (blogname, blogdescription, admin_email etc)
+- get_users: lists WordPress users
+
+Use query tools when you need information before making a change. Always confirm what you're about to do before generating the instruction JSON. Be concise and helpful.`
 
 const TOOLS: Tool[] = [
   {
@@ -36,11 +68,87 @@ const TOOLS: Tool[] = [
       required: [],
     },
   },
+  {
+    name: "list_posts",
+    description:
+      "Fetches a list of recent posts on the WordPress site. Returns an array of posts with their id, title, url, and date.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "get_active_plugins",
+    description:
+      "Fetches the list of installed and active plugins on the WordPress site. Returns an array of plugins with their slug, name, and active status.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "get_menu_structure",
+    description:
+      "Fetches all navigation menus and their items from the WordPress site. Returns an array of menus with their id, name, and items (each with id, title, url, order).",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "get_woocommerce_products",
+    description:
+      "Fetches WooCommerce products from the WordPress site. Only works if WooCommerce is active. Returns an array of products with their id, name, price, and status.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "get_site_settings",
+    description:
+      "Fetches key WordPress site settings including blogname, blogdescription, admin_email, siteurl, home, and permalink_structure.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "get_users",
+    description:
+      "Fetches a list of WordPress users. Returns an array of users with their id, username, email, and role.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
 ]
 
 interface ChatMessage {
   role: "user" | "assistant"
   content: string
+}
+
+const QUERY_TOOLS = [
+  "list_pages",
+  "list_posts",
+  "get_active_plugins",
+  "get_menu_structure",
+  "get_woocommerce_products",
+  "get_site_settings",
+  "get_users",
+] as const
+
+type QueryToolName = (typeof QUERY_TOOLS)[number]
+
+function isQueryTool(name: string): name is QueryToolName {
+  return (QUERY_TOOLS as readonly string[]).includes(name)
 }
 
 export async function POST(request: NextRequest) {
@@ -125,9 +233,9 @@ export async function POST(request: NextRequest) {
             const toolResults: ToolResultBlockParam[] = []
 
             for (const toolUse of toolUses) {
-              if (toolUse.name === "list_pages") {
+              if (isQueryTool(toolUse.name)) {
                 try {
-                  const queryUrl = `${site.url}/wp-json/wordpress-ai/v1/query?tool=list_pages`
+                  const queryUrl = `${site.url}/wp-json/wordpress-ai/v1/query?tool=${toolUse.name}`
                   const wpResponse = await fetch(queryUrl, {
                     method: "GET",
                     headers: {
@@ -137,17 +245,17 @@ export async function POST(request: NextRequest) {
                   })
 
                   if (wpResponse.ok) {
-                    const pages = await wpResponse.json()
+                    const result = await wpResponse.json()
                     toolResults.push({
                       type: "tool_result",
                       tool_use_id: toolUse.id,
-                      content: JSON.stringify(pages),
+                      content: JSON.stringify(result),
                     })
                   } else {
                     toolResults.push({
                       type: "tool_result",
                       tool_use_id: toolUse.id,
-                      content: JSON.stringify({ error: "Failed to fetch pages" }),
+                      content: JSON.stringify({ error: `Failed to fetch ${toolUse.name}` }),
                       is_error: true,
                     })
                   }
@@ -161,6 +269,13 @@ export async function POST(request: NextRequest) {
                     is_error: true,
                   })
                 }
+              } else {
+                toolResults.push({
+                  type: "tool_result",
+                  tool_use_id: toolUse.id,
+                  content: JSON.stringify({ error: `Unknown tool: ${toolUse.name}` }),
+                  is_error: true,
+                })
               }
             }
 

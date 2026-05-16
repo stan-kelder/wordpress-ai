@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { EyeIcon, CodeIcon, SendHorizontal } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
+import { classifyAction } from "@/lib/classify-action"
 import type { RiskLevel } from "@/lib/classify-action"
 
 interface Message {
@@ -39,41 +40,291 @@ function parseInstruction(text: string): Instruction | null {
 }
 
 function InstructionPreview({ instruction }: { instruction: Instruction }) {
-  if (instruction.action === "create_page") {
+  const { action, params } = instruction
+
+  // Shared section for status + content preview
+  function StatusRow() {
+    if (!params?.status) return null
+    return (
+      <p className="text-sm text-muted-foreground">
+        Status: <span className="text-foreground">{String(params.status)}</span>
+      </p>
+    )
+  }
+
+  function ContentPreview() {
+    if (!params?.content) return null
+    return (
+      <div>
+        <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-1">
+          Content preview
+        </p>
+        <p className="text-sm text-muted-foreground line-clamp-4">
+          {String(params.content)}
+        </p>
+      </div>
+    )
+  }
+
+  function ActionLabel({ label }: { label: string }) {
+    return (
+      <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+        {label}
+      </p>
+    )
+  }
+
+  if (action === "create_page") {
     return (
       <div className="space-y-3">
-        <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-          Action
-        </p>
+        <ActionLabel label="Create Page" />
         <p className="text-sm">
           Will create page:{" "}
           <strong className="text-foreground">
-            {instruction.params?.title ?? "Untitled"}
+            {String(params?.title ?? "Untitled")}
           </strong>
         </p>
-        {instruction.params?.status && (
+        <StatusRow />
+        <ContentPreview />
+      </div>
+    )
+  }
+
+  if (action === "update_page") {
+    return (
+      <div className="space-y-3">
+        <ActionLabel label="Update Page" />
+        <p className="text-sm">
+          Will update page ID{" "}
+          <strong className="text-foreground">{String(params?.id ?? "?")}</strong>
+          {params?.title ? (
+            <>: <strong className="text-foreground">{String(params.title)}</strong></>
+          ) : null}
+        </p>
+        <StatusRow />
+        <ContentPreview />
+      </div>
+    )
+  }
+
+  if (action === "delete_page") {
+    return (
+      <div className="space-y-3">
+        <ActionLabel label="Delete Page" />
+        <p className="text-sm text-destructive font-medium">
+          Will permanently delete page ID{" "}
+          <strong>{String(params?.id ?? "?")}</strong>
+        </p>
+        <p className="text-xs text-destructive/70">This action cannot be undone.</p>
+      </div>
+    )
+  }
+
+  if (action === "create_post") {
+    return (
+      <div className="space-y-3">
+        <ActionLabel label="Create Post" />
+        <p className="text-sm">
+          Will create post:{" "}
+          <strong className="text-foreground">
+            {String(params?.title ?? "Untitled")}
+          </strong>
+        </p>
+        {params?.category && (
           <p className="text-sm text-muted-foreground">
-            Status:{" "}
-            <span className="text-foreground">{instruction.params.status}</span>
+            Category: <span className="text-foreground">{String(params.category)}</span>
           </p>
         )}
-        {instruction.params?.content && (
-          <div>
-            <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-1">
-              Content preview
-            </p>
-            <p className="text-sm text-muted-foreground line-clamp-4">
-              {instruction.params.content}
-            </p>
-          </div>
+        <StatusRow />
+        <ContentPreview />
+      </div>
+    )
+  }
+
+  if (action === "update_post") {
+    return (
+      <div className="space-y-3">
+        <ActionLabel label="Update Post" />
+        <p className="text-sm">
+          Will update post ID{" "}
+          <strong className="text-foreground">{String(params?.id ?? "?")}</strong>
+          {params?.title ? (
+            <>: <strong className="text-foreground">{String(params.title)}</strong></>
+          ) : null}
+        </p>
+        <StatusRow />
+        <ContentPreview />
+      </div>
+    )
+  }
+
+  if (action === "delete_post") {
+    return (
+      <div className="space-y-3">
+        <ActionLabel label="Delete Post" />
+        <p className="text-sm text-destructive font-medium">
+          Will permanently delete post ID{" "}
+          <strong>{String(params?.id ?? "?")}</strong>
+        </p>
+        <p className="text-xs text-destructive/70">This action cannot be undone.</p>
+      </div>
+    )
+  }
+
+  if (action === "add_menu_item") {
+    return (
+      <div className="space-y-3">
+        <ActionLabel label="Add Menu Item" />
+        <p className="text-sm">
+          Will add{" "}
+          <strong className="text-foreground">{String(params?.title ?? "item")}</strong>{" "}
+          to menu ID{" "}
+          <strong className="text-foreground">{String(params?.menu_id ?? "?")}</strong>
+        </p>
+        {params?.url && (
+          <p className="text-sm text-muted-foreground truncate">
+            URL: <span className="text-foreground">{String(params.url)}</span>
+          </p>
         )}
+      </div>
+    )
+  }
+
+  if (action === "update_menu_item") {
+    return (
+      <div className="space-y-3">
+        <ActionLabel label="Update Menu Item" />
+        <p className="text-sm">
+          Will update item ID{" "}
+          <strong className="text-foreground">{String(params?.item_id ?? "?")}</strong>{" "}
+          in menu ID{" "}
+          <strong className="text-foreground">{String(params?.menu_id ?? "?")}</strong>
+        </p>
+        {params?.title && (
+          <p className="text-sm text-muted-foreground">
+            New title: <span className="text-foreground">{String(params.title)}</span>
+          </p>
+        )}
+        {params?.url && (
+          <p className="text-sm text-muted-foreground truncate">
+            New URL: <span className="text-foreground">{String(params.url)}</span>
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  if (action === "remove_menu_item") {
+    return (
+      <div className="space-y-3">
+        <ActionLabel label="Remove Menu Item" />
+        <p className="text-sm">
+          Will remove item ID{" "}
+          <strong className="text-foreground">{String(params?.item_id ?? "?")}</strong>{" "}
+          from menu ID{" "}
+          <strong className="text-foreground">{String(params?.menu_id ?? "?")}</strong>
+        </p>
+      </div>
+    )
+  }
+
+  if (action === "update_setting") {
+    return (
+      <div className="space-y-3">
+        <ActionLabel label="Update Setting" />
+        <p className="text-sm">
+          Will update setting:{" "}
+          <strong className="text-foreground">{String(params?.option ?? "?")}</strong>
+          {" "}→{" "}
+          <strong className="text-foreground">{String(params?.value ?? "?")}</strong>
+        </p>
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          Changing site settings can affect all visitors.
+        </p>
+      </div>
+    )
+  }
+
+  if (action === "create_product") {
+    return (
+      <div className="space-y-3">
+        <ActionLabel label="Create Product" />
+        <p className="text-sm">
+          Will create product:{" "}
+          <strong className="text-foreground">{String(params?.name ?? "Untitled")}</strong>
+        </p>
+        {params?.price && (
+          <p className="text-sm text-muted-foreground">
+            Price: <span className="text-foreground">{String(params.price)}</span>
+          </p>
+        )}
+        <StatusRow />
+      </div>
+    )
+  }
+
+  if (action === "update_product") {
+    return (
+      <div className="space-y-3">
+        <ActionLabel label="Update Product" />
+        <p className="text-sm">
+          Will update product ID{" "}
+          <strong className="text-foreground">{String(params?.id ?? "?")}</strong>
+          {params?.name ? (
+            <>: <strong className="text-foreground">{String(params.name)}</strong></>
+          ) : null}
+        </p>
+        {params?.price && (
+          <p className="text-sm text-muted-foreground">
+            New price: <span className="text-foreground">{String(params.price)}</span>
+          </p>
+        )}
+        <StatusRow />
+      </div>
+    )
+  }
+
+  if (action === "create_user") {
+    return (
+      <div className="space-y-3">
+        <ActionLabel label="Create User" />
+        <p className="text-sm">
+          Will create user:{" "}
+          <strong className="text-foreground">{String(params?.username ?? "?")}</strong>{" "}
+          (<span className="text-muted-foreground">{String(params?.email ?? "no email")}</span>)
+        </p>
+        {params?.role && (
+          <p className="text-sm text-muted-foreground">
+            Role: <span className="text-foreground">{String(params.role)}</span>
+          </p>
+        )}
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          A new account will be created on your WordPress site.
+        </p>
+      </div>
+    )
+  }
+
+  if (action === "update_user_role") {
+    return (
+      <div className="space-y-3">
+        <ActionLabel label="Update User Role" />
+        <p className="text-sm">
+          Will change role of user ID{" "}
+          <strong className="text-foreground">{String(params?.user_id ?? "?")}</strong>{" "}
+          to{" "}
+          <strong className="text-foreground">{String(params?.role ?? "?")}</strong>
+        </p>
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          Changing roles affects what this user can do on your site.
+        </p>
       </div>
     )
   }
 
   return (
     <p className="text-sm text-muted-foreground">
-      Action: <strong>{instruction.action}</strong>
+      Action: <strong>{action}</strong>
     </p>
   )
 }
@@ -275,15 +526,8 @@ export default function ChatPage() {
         setSidePanelOpen(true)
 
         // Classify risk on the client side for gating the Publish button
-        const action = aiInstruction.action.toLowerCase()
-        const isRisky =
-          action !== "create_page" ||
-          action.includes("delete") ||
-          action.includes("user") ||
-          action.includes("role") ||
-          action.includes("auth") ||
-          action.includes("php")
-        setIsHighRisk(isRisky)
+        const riskLevel = classifyAction(aiInstruction)
+        setIsHighRisk(riskLevel === "high")
       }
     } catch (error) {
       setMessages((prev) => [
