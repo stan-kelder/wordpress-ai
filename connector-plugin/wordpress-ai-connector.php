@@ -782,6 +782,87 @@ function wordpress_ai_execute( WP_REST_Request $request ): WP_REST_Response {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Persistent Code (writes to mu-plugins for permanent WordPress hooks)
+    // -------------------------------------------------------------------------
+
+    if ( 'write_persistent_code' === $action ) {
+        $slug        = isset( $params['slug'] ) ? sanitize_key( $params['slug'] ) : '';
+        $code        = isset( $params['code'] ) ? $params['code'] : '';
+        $description = isset( $params['description'] ) ? sanitize_text_field( $params['description'] ) : '';
+
+        if ( empty( $slug ) || empty( $code ) ) {
+            return new WP_REST_Response( array( 'error' => 'slug and code are required.' ), 400 );
+        }
+
+        // Strip PHP open/close tags
+        $code = trim( $code );
+        $code = preg_replace( '/^<\?php\s*/i', '', $code );
+        $code = preg_replace( '/\s*\?>$/', '', $code );
+
+        // Block dangerous functions
+        $blocked = array(
+            'exec', 'shell_exec', 'system', 'passthru', 'popen', 'proc_open',
+            'curl_exec', 'curl_init', 'fsockopen', 'base64_decode', 'str_rot13',
+            'gzinflate', 'gzuncompress',
+        );
+        foreach ( $blocked as $fn ) {
+            if ( preg_match( '/\b' . preg_quote( $fn, '/' ) . '\s*\(/i', $code ) ) {
+                return new WP_REST_Response(
+                    array( 'error' => 'Blocked function: ' . $fn . '() is not permitted in persistent code.' ),
+                    403
+                );
+            }
+        }
+
+        $mu_dir = WP_CONTENT_DIR . '/mu-plugins';
+        $file   = $mu_dir . '/wordpress-ai-persistent.php';
+
+        // Create mu-plugins dir if it doesn't exist
+        if ( ! is_dir( $mu_dir ) ) {
+            wp_mkdir_p( $mu_dir );
+        }
+
+        // Read existing file or start fresh
+        if ( file_exists( $file ) ) {
+            $content = file_get_contents( $file );
+        } else {
+            $content = "<?php\n// WordPress AI Persistent Customizations\n// Managed automatically — do not edit manually\n";
+        }
+
+        // Replace existing block with this slug, or append
+        $start_marker = '// [wordpress-ai:' . $slug . ']';
+        $end_marker   = '// [/wordpress-ai:' . $slug . ']';
+        $new_block    = $start_marker . "\n// " . $description . "\n" . $code . "\n" . $end_marker;
+
+        if ( strpos( $content, $start_marker ) !== false ) {
+            // Replace existing block
+            $content = preg_replace(
+                '/' . preg_quote( $start_marker, '/' ) . '.*?' . preg_quote( $end_marker, '/' ) . '/s',
+                $new_block,
+                $content
+            );
+        } else {
+            // Append new block
+            $content .= "\n" . $new_block . "\n";
+        }
+
+        $written = file_put_contents( $file, $content );
+
+        if ( false === $written ) {
+            return new WP_REST_Response( array( 'error' => 'Could not write to mu-plugins. Check directory permissions.' ), 500 );
+        }
+
+        return new WP_REST_Response(
+            array(
+                'success'     => true,
+                'description' => $description,
+                'slug'        => $slug,
+            ),
+            200
+        );
+    }
+
     return new WP_REST_Response(
         array( 'error' => 'Unknown action: ' . $action ),
         400

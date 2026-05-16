@@ -27,6 +27,11 @@ For execute_php instructions specifically:
 - BLOCK if the code attempts to read/write files, make network requests, or bypass WordPress APIs with direct $wpdb->query() using raw SQL
 - FLAG with a warning if the code modifies critical options like siteurl, home, or active_plugins
 
+For write_persistent_code instructions specifically:
+- write_persistent_code follows the same rules as execute_php — block dangerous functions, approve WordPress API usage.
+- APPROVE if the code uses only WordPress API functions (wp_*, get_*, update_*, add_action, add_filter, add_shortcode, register_post_type, etc.)
+- BLOCK if the code uses: exec, shell_exec, system, passthru, file_put_contents, file_get_contents, fopen, curl_exec, fsockopen, base64_decode, eval, or any obfuscated/encoded strings
+
 - If you auto-correct something, explain it in the corrections array
 - Return the original instruction unchanged unless you are correcting something`
 

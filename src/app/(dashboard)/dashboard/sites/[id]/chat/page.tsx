@@ -29,14 +29,12 @@ interface ReviewSummary {
 
 type SidePanelTab = "preview" | "code"
 
-function parseInstruction(text: string): Instruction | null {
-  const match = text.match(/```json\n([\s\S]*?)\n```/)
-  if (!match) return null
-  try {
-    return JSON.parse(match[1]) as Instruction
-  } catch {
-    return null
-  }
+interface Step {
+  instruction: Instruction
+  riskLevel: RiskLevel
+  status: "idle" | "executing" | "success" | "error" | "blocked"
+  message: string
+  review: ReviewSummary | null
 }
 
 function InstructionPreview({ instruction }: { instruction: Instruction }) {
@@ -344,6 +342,29 @@ function InstructionPreview({ instruction }: { instruction: Instruction }) {
     )
   }
 
+  if (action === "write_persistent_code") {
+    return (
+      <div className="space-y-3">
+        <ActionLabel label="Persistent Code" />
+        <p className="text-sm text-muted-foreground">
+          {String(params?.description ?? "Persistent WordPress customization")}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Slug: <code className="bg-muted px-1 rounded">{String(params?.slug ?? "")}</code>
+        </p>
+        <div>
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-1">PHP Code</p>
+          <pre className="text-xs bg-muted rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words font-mono">
+            {String(params?.code ?? "")}
+          </pre>
+        </div>
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          This writes PHP to wp-content/mu-plugins/ and runs permanently on your site.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <p className="text-sm text-muted-foreground">
       Action: <strong>{action}</strong>
@@ -351,96 +372,13 @@ function InstructionPreview({ instruction }: { instruction: Instruction }) {
   )
 }
 
-interface SecuritySummaryProps {
-  publishStatus: "idle" | "publishing" | "success" | "error" | "blocked"
-  publishMessage: string
-  reviewResult: ReviewSummary | null
-  isHighRisk: boolean
-  highRiskConfirmed: boolean
-  onToggleHighRisk: () => void
-}
-
-function SecuritySummary({
-  publishStatus,
-  publishMessage,
-  reviewResult,
-  isHighRisk,
-  highRiskConfirmed,
-  onToggleHighRisk,
-}: SecuritySummaryProps) {
-  // After a blocked response
-  if (publishStatus === "blocked") {
-    return (
-      <div className="space-y-1">
-        <p className="text-xs font-medium text-destructive">Blocked by security reviewer</p>
-        {reviewResult?.warnings.map((w, i) => (
-          <p key={i} className="text-xs text-destructive">
-            {w}
-          </p>
-        ))}
-      </div>
-    )
-  }
-
-  // After a successful publish — show review result
-  if (
-    (publishStatus === "success" || publishStatus === "error") &&
-    reviewResult
-  ) {
-    const hasIssues =
-      reviewResult.corrections.length > 0 || reviewResult.warnings.length > 0
-
-    return (
-      <div className="space-y-1">
-        {!hasIssues && publishStatus === "success" && (
-          <div className="flex items-center gap-2 text-xs text-green-700 dark:text-green-400">
-            <span>&#10003;</span>
-            <span>No issues found — published cleanly</span>
-          </div>
-        )}
-        {reviewResult.corrections.map((c, i) => (
-          <p key={i} className="text-xs text-amber-600 dark:text-amber-400">
-            Auto-corrected: {c}
-          </p>
-        ))}
-        {reviewResult.warnings.map((w, i) => (
-          <p key={i} className="text-xs text-amber-600 dark:text-amber-400">
-            Warning: {w}
-          </p>
-        ))}
-      </div>
-    )
-  }
-
-  // Pre-publish idle state
-  if (isHighRisk) {
-    return (
-      <div className="space-y-2">
-        <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-lg px-3 py-2">
-          <span>&#9888;</span>
-          <span>High-risk action — confirmation required</span>
-        </div>
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={highRiskConfirmed}
-            onChange={onToggleHighRisk}
-            className="accent-destructive"
-          />
-          <span className="text-xs text-muted-foreground">
-            I understand this is a high-risk action
-          </span>
-        </label>
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted rounded-lg px-3 py-2">
-      <span>&#10003;</span>
-      <span>Ready to review and publish</span>
-    </div>
-  )
+function StepBadge({ status, riskLevel }: { status: Step["status"], riskLevel: RiskLevel }) {
+  if (status === "success") return <span className="text-xs text-green-600 dark:text-green-400">✓ Done</span>
+  if (status === "executing") return <span className="text-xs text-muted-foreground">Running...</span>
+  if (status === "error") return <span className="text-xs text-destructive">✗ Failed</span>
+  if (status === "blocked") return <span className="text-xs text-destructive">⊘ Blocked</span>
+  if (riskLevel === "high") return <span className="text-xs text-amber-600 dark:text-amber-400">⚠ High risk</span>
+  return <span className="text-xs text-muted-foreground">Pending</span>
 }
 
 interface Site {
@@ -459,15 +397,10 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [instruction, setInstruction] = useState<Instruction | null>(null)
+  const [steps, setSteps] = useState<Step[]>([])
   const [sidePanelOpen, setSidePanelOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<SidePanelTab>("preview")
-  const [publishStatus, setPublishStatus] = useState<
-    "idle" | "publishing" | "success" | "error" | "blocked"
-  >("idle")
-  const [publishMessage, setPublishMessage] = useState("")
-  const [reviewResult, setReviewResult] = useState<ReviewSummary | null>(null)
-  const [isHighRisk, setIsHighRisk] = useState(false)
+  const [isExecuting, setIsExecuting] = useState(false)
   const [highRiskConfirmed, setHighRiskConfirmed] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -487,12 +420,9 @@ export default function ChatPage() {
   useEffect(() => {
     setMessages([])
     setInput("")
-    setInstruction(null)
+    setSteps([])
     setSidePanelOpen(false)
-    setPublishStatus("idle")
-    setPublishMessage("")
-    setReviewResult(null)
-    setIsHighRisk(false)
+    setIsExecuting(false)
     setHighRiskConfirmed(false)
   }, [siteId])
 
@@ -513,10 +443,7 @@ export default function ChatPage() {
     setMessages(newMessages)
     setInput("")
     setIsLoading(true)
-    setPublishStatus("idle")
-    setPublishMessage("")
-    setReviewResult(null)
-    setIsHighRisk(false)
+    setSteps([])
     setHighRiskConfirmed(false)
 
     try {
@@ -536,7 +463,7 @@ export default function ChatPage() {
       const decoder = new TextDecoder()
       let buffer = ""
       let aiText = ""
-      let aiInstruction: Instruction | null = null
+      let aiSteps: Step[] = []
 
       while (true) {
         const { done, value } = await reader.read()
@@ -555,15 +482,22 @@ export default function ChatPage() {
             try {
               const parsed = JSON.parse(dataStr) as {
                 text?: string
-                instruction?: Instruction | null
+                instructions?: Instruction[]
                 message?: string
               }
 
               if (parsed.text !== undefined) {
                 aiText = parsed.text
               }
-              if (parsed.instruction !== undefined) {
-                aiInstruction = parsed.instruction
+              if (parsed.instructions !== undefined) {
+                const incomingInstructions = parsed.instructions as Instruction[]
+                aiSteps = incomingInstructions.map((inst) => ({
+                  instruction: inst,
+                  riskLevel: classifyAction(inst),
+                  status: "idle" as const,
+                  message: "",
+                  review: null,
+                }))
               }
             } catch {
               // Ignore parse errors
@@ -577,13 +511,9 @@ export default function ChatPage() {
         { role: "assistant", content: aiText },
       ])
 
-      if (aiInstruction) {
-        setInstruction(aiInstruction)
+      if (aiSteps.length > 0) {
+        setSteps(aiSteps)
         setSidePanelOpen(true)
-
-        // Classify risk on the client side for gating the Publish button
-        const riskLevel = classifyAction(aiInstruction)
-        setIsHighRisk(riskLevel === "high")
       }
     } catch (error) {
       setMessages((prev) => [
@@ -601,63 +531,38 @@ export default function ChatPage() {
     }
   }
 
-  async function handlePublish() {
-    if (!instruction) return
-    setPublishStatus("publishing")
-    setPublishMessage("")
-    setReviewResult(null)
-
-    try {
-      const response = await fetch(`/api/sites/${siteId}/execute`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instruction }),
-      })
-
-      const data = (await response.json()) as {
-        success?: boolean
-        post_id?: number
-        error?: string
-        warnings?: string[]
-        review?: ReviewSummary
-      }
-
-      if (response.ok && data.success) {
-        if (data.review) {
-          setReviewResult(data.review)
-        }
-        setPublishStatus("success")
-        setPublishMessage(
-          `Published successfully${data.post_id ? ` (post ID: ${data.post_id})` : ""}`
-        )
-      } else if (response.status === 400 && data.error === "Blocked by security reviewer") {
-        // Blocked — surface the warnings from the review
-        setReviewResult({
-          corrections: [],
-          warnings: data.warnings ?? [],
-          riskLevel: "high",
+  async function handleExecuteAll() {
+    setIsExecuting(true)
+    for (let i = 0; i < steps.length; i++) {
+      setSteps((prev) => prev.map((s, idx) => idx === i ? { ...s, status: "executing" } : s))
+      try {
+        const response = await fetch(`/api/sites/${siteId}/execute`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ instruction: steps[i].instruction }),
         })
-        setPublishStatus("blocked")
-        setPublishMessage(data.error)
-      } else {
-        if (data.review) {
-          setReviewResult(data.review)
+        const data = await response.json() as { success?: boolean, error?: string, warnings?: string[], review?: ReviewSummary }
+        if (response.ok && data.success) {
+          setSteps((prev) => prev.map((s, idx) => idx === i ? { ...s, status: "success", review: data.review ?? null } : s))
+        } else if (response.status === 400 && data.error === "Blocked by security reviewer") {
+          setSteps((prev) => prev.map((s, idx) => idx === i ? { ...s, status: "blocked", message: data.warnings?.join(", ") ?? "Blocked", review: { corrections: [], warnings: data.warnings ?? [], riskLevel: "high" } } : s))
+          break // stop on block
+        } else {
+          setSteps((prev) => prev.map((s, idx) => idx === i ? { ...s, status: "error", message: data.error ?? "Failed" } : s))
+          break // stop on error
         }
-        setPublishStatus("error")
-        setPublishMessage(data.error ?? "Failed to publish")
+      } catch (err) {
+        setSteps((prev) => prev.map((s, idx) => idx === i ? { ...s, status: "error", message: err instanceof Error ? err.message : "Failed" } : s))
+        break
       }
-    } catch (error) {
-      setPublishStatus("error")
-      setPublishMessage(
-        error instanceof Error ? error.message : "Failed to publish"
-      )
     }
+    setIsExecuting(false)
   }
 
-  const publishDisabled =
-    publishStatus === "publishing" ||
-    publishStatus === "success" ||
-    (isHighRisk && !highRiskConfirmed)
+  const hasHighRisk = steps.some((s) => s.riskLevel === "high")
+  const allDone = steps.length > 0 && steps.every((s) => ["success", "error", "blocked"].includes(s.status))
+  const anyBlocked = steps.some((s) => s.status === "blocked")
+  const anyError = steps.some((s) => s.status === "error")
 
   return (
     <div className="flex h-[calc(100vh-53px)] overflow-hidden">
@@ -796,7 +701,7 @@ export default function ChatPage() {
           sidePanelOpen ? "w-96" : "w-0"
         )}
       >
-        {sidePanelOpen && instruction && (
+        {sidePanelOpen && steps.length > 0 && (
           <>
             {/* Tab bar */}
             <div className="border-b border-border px-4 py-2 flex items-center gap-1">
@@ -827,49 +732,53 @@ export default function ChatPage() {
             </div>
 
             {/* Tab content */}
-            <div className="flex-1 overflow-y-auto p-4">
-              {activeTab === "preview" ? (
-                <InstructionPreview instruction={instruction} />
-              ) : (
-                <pre className="text-xs bg-muted rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-all">
-                  {JSON.stringify(instruction, null, 2)}
-                </pre>
-              )}
-            </div>
+            {activeTab === "preview" ? (
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {steps.map((step, i) => (
+                  <div key={i} className="border border-border rounded-lg overflow-hidden">
+                    <div className="px-3 py-2 bg-muted flex items-center justify-between">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Step {i + 1}{steps.length > 1 ? ` of ${steps.length}` : ""}
+                      </span>
+                      <StepBadge status={step.status} riskLevel={step.riskLevel} />
+                    </div>
+                    <div className="p-3 space-y-2">
+                      <InstructionPreview instruction={step.instruction} />
+                      {step.status === "error" && <p className="text-xs text-destructive">{step.message}</p>}
+                      {step.status === "blocked" && <p className="text-xs text-destructive">{step.message}</p>}
+                      {step.review?.corrections.map((c, j) => <p key={j} className="text-xs text-amber-600">Auto-corrected: {c}</p>)}
+                      {step.review?.warnings.map((w, j) => <p key={j} className="text-xs text-amber-600">Warning: {w}</p>)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {steps.map((step, i) => (
+                  <div key={i}>
+                    {steps.length > 1 && <p className="text-xs text-muted-foreground mb-1">Step {i + 1}</p>}
+                    <pre className="text-xs bg-muted rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-all">
+                      {JSON.stringify(step.instruction, null, 2)}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            )}
 
-            {/* Security summary + publish */}
+            {/* Footer */}
             <div className="border-t border-border p-4 space-y-3">
-              <SecuritySummary
-                publishStatus={publishStatus}
-                publishMessage={publishMessage}
-                reviewResult={reviewResult}
-                isHighRisk={isHighRisk}
-                highRiskConfirmed={highRiskConfirmed}
-                onToggleHighRisk={() => setHighRiskConfirmed((v) => !v)}
-              />
-
-              {publishStatus === "success" && (
-                <p className="text-xs text-green-600 dark:text-green-400">
-                  {publishMessage}
-                </p>
+              {hasHighRisk && !allDone && (
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" checked={highRiskConfirmed} onChange={() => setHighRiskConfirmed(v => !v)} className="accent-destructive" />
+                  <span className="text-xs text-muted-foreground">I understand some steps are high-risk</span>
+                </label>
               )}
-              {publishStatus === "error" && (
-                <p className="text-xs text-destructive">{publishMessage}</p>
-              )}
-
               <Button
-                onClick={() => void handlePublish()}
-                disabled={publishDisabled}
-                variant={publishStatus === "blocked" ? "destructive" : "default"}
+                onClick={() => void handleExecuteAll()}
+                disabled={isExecuting || allDone || (hasHighRisk && !highRiskConfirmed)}
                 className="w-full"
               >
-                {publishStatus === "publishing"
-                  ? "Publishing..."
-                  : publishStatus === "success"
-                    ? "Published"
-                    : publishStatus === "blocked"
-                      ? "Blocked"
-                      : "Publish"}
+                {isExecuting ? "Executing..." : allDone ? (anyBlocked ? "Blocked" : anyError ? "Failed — check steps" : "All Done") : `Execute${steps.length > 1 ? ` ${steps.length} Steps` : ""}`}
               </Button>
             </div>
           </>

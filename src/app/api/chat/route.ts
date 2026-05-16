@@ -57,6 +57,11 @@ PHP Execution (for advanced operations not covered by the actions above):
 
 Use execute_php ONLY when no JSON action covers what the user needs (e.g. changing the active theme, managing widgets, updating plugin-specific options, bulk operations, taxonomy management, custom field updates). The code runs inside WordPress so you can use any WordPress function: get_option(), update_option(), switch_theme(), wp_get_sidebars_widgets(), update_post_meta(), get_terms(), etc. Keep code concise, use WordPress APIs exclusively, and always return a meaningful value (string or array) so the user sees the result. Do NOT use file system, network, or database functions directly. IMPORTANT: do NOT include <?php or ?> tags in the code — write plain PHP statements only.
 
+Persistent Code (for admin menus, hooks, shortcode definitions, custom post types — anything that needs to run on every WordPress page load):
+- write_persistent_code: {"action":"write_persistent_code","params":{"slug":"unique-kebab-case-identifier","code":"PHP code without tags","description":"what this does"}}
+
+Use write_persistent_code for: add_menu_page(), register_post_type(), add_action(), add_filter(), add_shortcode(), etc. Each slug overwrites its previous block, so re-running with the same slug is safe. Do NOT include <?php tags.
+
 AVAILABLE QUERY TOOLS:
 - list_pages: lists all published pages
 - list_posts: lists recent posts
@@ -67,8 +72,7 @@ AVAILABLE QUERY TOOLS:
 - get_users: lists WordPress users
 
 IMPORTANT RULES:
-- Output EXACTLY ONE instruction JSON block per response. If the user asks for multiple changes, tell them you will do them one at a time, output the first instruction, then wait for them to publish it and ask for the next step.
-- Persistent code (custom admin menus, hooks, shortcode definitions, theme modifications) cannot be done via execute_php because eval'd code doesn't survive page reloads. For these, tell the user it requires a plugin and suggest they ask you to generate a downloadable plugin file instead.
+- You can output MULTIPLE instruction JSON blocks in a single response if the user asks for multiple changes. Each block will be executed in sequence. Plan all steps upfront, output them all at once, and briefly describe what each step does.
 - Use query tools when you need information before making a change.
 - Be concise and helpful.`
 
@@ -204,7 +208,6 @@ export async function POST(request: NextRequest) {
         }))
 
         let fullText = ""
-        let instruction: unknown = null
 
         // Agentic loop — handle tool calls
         while (true) {
@@ -307,21 +310,17 @@ export async function POST(request: NextRequest) {
           // No more tool calls — we have the final response
           fullText = assistantText
 
-          // Parse JSON instruction from the response
-          const jsonMatch = fullText.match(/```json\n([\s\S]*?)\n```/)
-          if (jsonMatch) {
-            try {
-              instruction = JSON.parse(jsonMatch[1])
-            } catch {
-              // Ignore parse errors
-            }
-          }
-
           break
         }
 
+        // Find all JSON blocks and parse them into an instructions array
+        const jsonMatches = [...fullText.matchAll(/```json\n([\s\S]*?)\n```/g)]
+        const instructions = jsonMatches.flatMap((m) => {
+          try { return [JSON.parse(m[1])] } catch { return [] }
+        })
+
         sendEvent("text", { text: fullText })
-        sendEvent("instruction", { instruction })
+        sendEvent("instructions", { instructions })
         sendEvent("done", {})
       } catch (error) {
         sendEvent("error", {
