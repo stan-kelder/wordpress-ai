@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -421,10 +421,19 @@ function SecuritySummary({
   )
 }
 
+interface Site {
+  id: string
+  name: string
+  url: string
+  connected: boolean
+}
+
 export default function ChatPage() {
   const params = useParams()
+  const router = useRouter()
   const siteId = params.id as string
 
+  const [sites, setSites] = useState<Site[]>([])
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -442,9 +451,34 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // Fetch all sites for the switcher once on mount
+  useEffect(() => {
+    fetch("/api/sites")
+      .then((r) => r.json())
+      .then((data: { sites?: Site[] }) => {
+        if (data.sites) setSites(data.sites)
+      })
+      .catch(() => {})
+  }, [])
+
+  // Reset chat state when switching sites
+  useEffect(() => {
+    setMessages([])
+    setInput("")
+    setInstruction(null)
+    setSidePanelOpen(false)
+    setPublishStatus("idle")
+    setPublishMessage("")
+    setReviewResult(null)
+    setIsHighRisk(false)
+    setHighRiskConfirmed(false)
+  }, [siteId])
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
+
+  const currentSite = sites.find((s) => s.id === siteId)
 
   async function sendMessage() {
     const text = input.trim()
@@ -615,13 +649,43 @@ export default function ChatPage() {
         {/* Chat header */}
         <div className="border-b border-border px-6 py-3 flex items-center gap-3">
           <Link
-            href={`/dashboard/sites/${siteId}`}
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            href="/dashboard"
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0"
           >
-            ← Back
+            ← Sites
           </Link>
           <span className="text-sm text-muted-foreground">|</span>
-          <span className="text-sm font-medium">Chat</span>
+          {sites.length > 1 ? (
+            <select
+              value={siteId}
+              onChange={(e) => router.push(`/dashboard/sites/${e.target.value}/chat`)}
+              className="text-sm font-medium bg-transparent border-none outline-none cursor-pointer text-foreground"
+            >
+              {sites.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-sm font-medium">
+              {currentSite?.name ?? "Chat"}
+            </span>
+          )}
+          {currentSite && (
+            <span className="text-xs text-muted-foreground truncate hidden sm:block">
+              {currentSite.url}
+            </span>
+          )}
+          {currentSite && (
+            <span
+              className={cn(
+                "ml-auto inline-block size-2 rounded-full shrink-0",
+                currentSite.connected ? "bg-green-500" : "bg-muted-foreground/40"
+              )}
+              title={currentSite.connected ? "Connected" : "Not connected"}
+            />
+          )}
         </div>
 
         {/* Messages */}
