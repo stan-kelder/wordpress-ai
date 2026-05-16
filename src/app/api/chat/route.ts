@@ -66,7 +66,11 @@ AVAILABLE QUERY TOOLS:
 - get_site_settings: returns key WordPress settings (blogname, blogdescription, admin_email etc)
 - get_users: lists WordPress users
 
-Use query tools when you need information before making a change. Always confirm what you're about to do before generating the instruction JSON. Be concise and helpful.`
+IMPORTANT RULES:
+- Output EXACTLY ONE instruction JSON block per response. If the user asks for multiple changes, tell them you will do them one at a time, output the first instruction, then wait for them to publish it and ask for the next step.
+- Persistent code (custom admin menus, hooks, shortcode definitions, theme modifications) cannot be done via execute_php because eval'd code doesn't survive page reloads. For these, tell the user it requires a plugin and suggest they ask you to generate a downloadable plugin file instead.
+- Use query tools when you need information before making a change.
+- Be concise and helpful.`
 
 const TOOLS: Tool[] = [
   {
