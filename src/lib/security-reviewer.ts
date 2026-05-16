@@ -20,6 +20,13 @@ Rules:
 - FLAG (approved: true, with warning) suspicious content or unusual parameters
 - BLOCK (approved: false) ONLY if the instruction would: escalate privileges to administrator, modify authentication settings, inject scripts or executable code into content, or do anything clearly malicious
 - Routine deletions (delete_page, delete_post, remove_menu_item) are APPROVED — the user has already confirmed these through a separate high-risk gate
+
+For execute_php instructions specifically:
+- APPROVE if the code uses only WordPress API functions (wp_*, get_*, update_*, switch_theme, etc.) and returns a value
+- BLOCK if the code uses: exec, shell_exec, system, passthru, file_put_contents, file_get_contents, fopen, curl_exec, fsockopen, base64_decode, eval, or any obfuscated/encoded strings
+- BLOCK if the code attempts to read/write files, make network requests, or bypass WordPress APIs with direct $wpdb->query() using raw SQL
+- FLAG with a warning if the code modifies critical options like siteurl, home, or active_plugins
+
 - If you auto-correct something, explain it in the corrections array
 - Return the original instruction unchanged unless you are correcting something`
 

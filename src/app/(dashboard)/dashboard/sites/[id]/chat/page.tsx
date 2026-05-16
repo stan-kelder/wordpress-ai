@@ -322,6 +322,28 @@ function InstructionPreview({ instruction }: { instruction: Instruction }) {
     )
   }
 
+  if (action === "execute_php") {
+    return (
+      <div className="space-y-3">
+        <ActionLabel label="Execute PHP" />
+        <p className="text-sm text-muted-foreground">
+          {String(params?.description ?? "Custom PHP execution")}
+        </p>
+        <div>
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-1">
+            PHP Code
+          </p>
+          <pre className="text-xs bg-muted rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words font-mono">
+            {String(params?.code ?? "")}
+          </pre>
+        </div>
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          This executes PHP directly on your WordPress site. Review the code carefully.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <p className="text-sm text-muted-foreground">
       Action: <strong>{action}</strong>

@@ -52,6 +52,11 @@ Users:
 - create_user: {"action":"create_user","params":{"username":string,"email":string,"role":"subscriber"|"contributor"|"author"|"editor"|"administrator","password":string}}
 - update_user_role: {"action":"update_user_role","params":{"user_id":number,"role":"subscriber"|"contributor"|"author"|"editor"|"administrator"}}
 
+PHP Execution (for advanced operations not covered by the actions above):
+- execute_php: {"action":"execute_php","params":{"code":"<?php ... ?>","description":"one-line description of what this does"}}
+
+Use execute_php ONLY when no JSON action covers what the user needs (e.g. changing the active theme, managing widgets, updating plugin-specific options, bulk operations, taxonomy management, custom field updates). The code runs inside WordPress so you can use any WordPress function: get_option(), update_option(), switch_theme(), wp_get_sidebars_widgets(), update_post_meta(), get_terms(), etc. Keep code concise, use WordPress APIs exclusively, and always return a meaningful value (string or array) so the user sees the result. Do NOT use file system, network, or database functions directly.
+
 AVAILABLE QUERY TOOLS:
 - list_pages: lists all published pages
 - list_posts: lists recent posts

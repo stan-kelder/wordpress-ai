@@ -23,6 +23,7 @@ const HIGH_RISK_ACTIONS = new Set([
   "create_user",
   "update_user_role",
   "update_setting",
+  "execute_php",
 ])
 
 export function classifyAction(instruction: Instruction): RiskLevel {

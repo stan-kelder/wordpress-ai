@@ -718,6 +718,65 @@ function wordpress_ai_execute( WP_REST_Request $request ): WP_REST_Response {
         return new WP_REST_Response( array( 'success' => true ), 200 );
     }
 
+    // -------------------------------------------------------------------------
+    // PHP Execution (advanced operations)
+    // -------------------------------------------------------------------------
+
+    if ( 'execute_php' === $action ) {
+        $code        = isset( $params['code'] ) ? $params['code'] : '';
+        $description = isset( $params['description'] ) ? sanitize_text_field( $params['description'] ) : 'PHP execution';
+
+        if ( empty( $code ) ) {
+            return new WP_REST_Response( array( 'error' => 'No PHP code provided.' ), 400 );
+        }
+
+        // Block dangerous functions and constructs
+        $blocked = array(
+            'exec', 'shell_exec', 'system', 'passthru', 'popen', 'proc_open',
+            'file_put_contents', 'file_get_contents', 'fopen', 'fwrite', 'fclose',
+            'unlink', 'rmdir', 'rename', 'move_uploaded_file',
+            'curl_exec', 'curl_init', 'fsockopen', 'stream_socket_client',
+            'base64_decode', 'str_rot13', 'gzinflate', 'gzuncompress', 'gzdecode',
+            'preg_replace_callback_array',
+        );
+
+        foreach ( $blocked as $fn ) {
+            if ( preg_match( '/\b' . preg_quote( $fn, '/' ) . '\s*\(/i', $code ) ) {
+                return new WP_REST_Response(
+                    array( 'error' => 'Blocked function: ' . $fn . '() is not permitted.' ),
+                    403
+                );
+            }
+        }
+
+        // Also block eval inside the submitted code
+        if ( preg_match( '/\beval\s*\(/i', $code ) ) {
+            return new WP_REST_Response( array( 'error' => 'eval() is not permitted inside executed code.' ), 403 );
+        }
+
+        ob_start();
+        try {
+            // Wrap in a function to capture return values
+            $wrapped = 'return (function() use (&$wpdb) { ' . $code . ' })();';
+            // phpcs:ignore Squiz.PHP.Eval.Discouraged
+            $result = eval( $wrapped );
+            $output = ob_get_clean();
+
+            return new WP_REST_Response(
+                array(
+                    'success'     => true,
+                    'description' => $description,
+                    'output'      => $output,
+                    'result'      => is_scalar( $result ) ? $result : json_encode( $result ),
+                ),
+                200
+            );
+        } catch ( \Throwable $e ) {
+            ob_end_clean();
+            return new WP_REST_Response( array( 'error' => 'PHP error: ' . $e->getMessage() ), 500 );
+        }
+    }
+
     return new WP_REST_Response(
         array( 'error' => 'Unknown action: ' . $action ),
         400
