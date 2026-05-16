@@ -13,22 +13,14 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
-const SECURITY_SYSTEM_PROMPT = `You are a security reviewer for a WordPress management AI. Your job is to review instructions before they are executed on a WordPress site.
-
-Review the given instruction JSON and respond with a JSON object:
-{
-  "approved": boolean,
-  "corrections": string[],
-  "warnings": string[],
-  "instruction": { ...modified instruction... }
-}
+const SECURITY_SYSTEM_PROMPT = `You are a security reviewer for a WordPress management AI. Review the given instruction JSON and call the submit_review tool with your assessment.
 
 Rules:
 - APPROVE safe operations: creating/editing content pages, updating non-critical settings
 - FLAG (approved: true, with warning) suspicious content or unusual parameters
 - BLOCK (approved: false) if the instruction would: delete content, escalate privileges, modify authentication settings, inject scripts, or do anything clearly malicious
-- If you correct something, explain it in the corrections array
-- Always return valid JSON`
+- If you auto-correct something, explain it in the corrections array
+- Return the original instruction unchanged unless you are correcting something`
 
 export async function reviewInstruction(
   instruction: Instruction
@@ -40,6 +32,37 @@ export async function reviewInstruction(
       model: "claude-haiku-4-5-20251001",
       max_tokens: 1024,
       system: SECURITY_SYSTEM_PROMPT,
+      tools: [
+        {
+          name: "submit_review",
+          description: "Submit the security review result for this instruction",
+          input_schema: {
+            type: "object" as const,
+            properties: {
+              approved: {
+                type: "boolean",
+                description: "Whether the instruction is safe to execute",
+              },
+              corrections: {
+                type: "array",
+                items: { type: "string" },
+                description: "List of things auto-corrected in the instruction",
+              },
+              warnings: {
+                type: "array",
+                items: { type: "string" },
+                description: "List of warnings for the user",
+              },
+              instruction: {
+                type: "object",
+                description: "The (possibly corrected) instruction to execute",
+              },
+            },
+            required: ["approved", "corrections", "warnings", "instruction"],
+          },
+        },
+      ],
+      tool_choice: { type: "tool", name: "submit_review" },
       messages: [
         {
           role: "user",
@@ -48,18 +71,12 @@ export async function reviewInstruction(
       ],
     })
 
-    const textBlock = response.content.find((b) => b.type === "text")
-    if (!textBlock || textBlock.type !== "text") {
-      return failSafe(instruction, riskLevel, "Security review returned no text")
+    const toolUse = response.content.find((b) => b.type === "tool_use")
+    if (!toolUse || toolUse.type !== "tool_use") {
+      return failSafe(instruction, riskLevel, "Security review returned no result")
     }
 
-    // Strip markdown code fences if present
-    const raw = textBlock.text.trim()
-    const jsonText = raw.startsWith("```")
-      ? raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()
-      : raw
-
-    const parsed = JSON.parse(jsonText) as {
+    const parsed = toolUse.input as {
       approved: boolean
       corrections: string[]
       warnings: string[]
@@ -77,7 +94,7 @@ export async function reviewInstruction(
           : instruction,
     }
   } catch {
-    return failSafe(instruction, riskLevel, "Security review failed to parse")
+    return failSafe(instruction, riskLevel, "Security review failed")
   }
 }
 
