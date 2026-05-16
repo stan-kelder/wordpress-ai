@@ -42,6 +42,13 @@ export default async function SitePage({ params }: SitePageProps) {
         </a>
       </div>
 
+      {/* Open Chat */}
+      <Link href={`/dashboard/sites/${site.id}/chat`}>
+        <Button size="lg" className="w-full sm:w-auto">
+          Open Chat
+        </Button>
+      </Link>
+
       {/* Connection status */}
       <Card>
         <CardHeader className="pb-3">

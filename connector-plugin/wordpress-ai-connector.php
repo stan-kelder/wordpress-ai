@@ -68,12 +68,12 @@ function wordpress_ai_register_routes(): void {
         )
     );
 
-    // Query endpoint — stub for future natural language queries.
+    // Query endpoint — handles tool calls such as list_pages.
     register_rest_route(
         $namespace,
         '/query',
         array(
-            'methods'             => 'POST',
+            'methods'             => 'GET',
             'callback'            => 'wordpress_ai_query',
             'permission_callback' => 'wordpress_ai_permission_callback',
         )
@@ -108,25 +108,111 @@ function wordpress_ai_ping(): WP_REST_Response {
 }
 
 /**
- * Query endpoint handler (stub).
+ * Query endpoint handler.
  *
+ * Supports the following tools via ?tool=<name>:
+ *   - list_pages: returns all published pages as { id, title, url }
+ *
+ * @param WP_REST_Request $request
  * @return WP_REST_Response
  */
-function wordpress_ai_query(): WP_REST_Response {
+function wordpress_ai_query( WP_REST_Request $request ): WP_REST_Response {
+    $tool = $request->get_param( 'tool' );
+
+    if ( 'list_pages' === $tool ) {
+        $pages = get_pages( array( 'post_status' => 'publish' ) );
+
+        if ( ! is_array( $pages ) ) {
+            return new WP_REST_Response( array(), 200 );
+        }
+
+        $result = array_map(
+            function ( $page ) {
+                return array(
+                    'id'    => $page->ID,
+                    'title' => get_the_title( $page ),
+                    'url'   => get_permalink( $page ),
+                );
+            },
+            $pages
+        );
+
+        return new WP_REST_Response( $result, 200 );
+    }
+
     return new WP_REST_Response(
-        array( 'error' => 'not implemented' ),
-        501
+        array( 'error' => 'Unknown tool: ' . $tool ),
+        400
     );
 }
 
 /**
- * Execute endpoint handler (stub).
+ * Execute endpoint handler.
  *
+ * Supports the following actions:
+ *   - create_page: creates a new WordPress page from the given params.
+ *
+ * @param WP_REST_Request $request
  * @return WP_REST_Response
  */
-function wordpress_ai_execute(): WP_REST_Response {
+function wordpress_ai_execute( WP_REST_Request $request ): WP_REST_Response {
+    $body = $request->get_json_params();
+
+    if ( empty( $body['action'] ) ) {
+        return new WP_REST_Response(
+            array( 'error' => 'Missing action in request body.' ),
+            400
+        );
+    }
+
+    $action = $body['action'];
+
+    if ( 'create_page' === $action ) {
+        $params = isset( $body['params'] ) && is_array( $body['params'] )
+            ? $body['params']
+            : array();
+
+        $title   = isset( $params['title'] ) ? sanitize_text_field( $params['title'] ) : '';
+        $content = isset( $params['content'] ) ? wp_kses_post( $params['content'] ) : '';
+        $status  = isset( $params['status'] ) && in_array( $params['status'], array( 'publish', 'draft' ), true )
+            ? $params['status']
+            : 'draft';
+
+        if ( empty( $title ) ) {
+            return new WP_REST_Response(
+                array( 'error' => 'Page title is required.' ),
+                400
+            );
+        }
+
+        $post_id = wp_insert_post(
+            array(
+                'post_title'   => $title,
+                'post_content' => $content,
+                'post_status'  => $status,
+                'post_type'    => 'page',
+            ),
+            true
+        );
+
+        if ( is_wp_error( $post_id ) ) {
+            return new WP_REST_Response(
+                array( 'error' => $post_id->get_error_message() ),
+                500
+            );
+        }
+
+        return new WP_REST_Response(
+            array(
+                'success' => true,
+                'post_id' => $post_id,
+            ),
+            200
+        );
+    }
+
     return new WP_REST_Response(
-        array( 'error' => 'not implemented' ),
-        501
+        array( 'error' => 'Unknown action: ' . $action ),
+        400
     );
 }
