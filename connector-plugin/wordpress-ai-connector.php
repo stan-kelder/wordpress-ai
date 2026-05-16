@@ -89,6 +89,17 @@ function wordpress_ai_register_routes(): void {
             'permission_callback' => 'wordpress_ai_permission_callback',
         )
     );
+
+    // Backup endpoint — stub that acknowledges a backup request.
+    register_rest_route(
+        $namespace,
+        '/backup',
+        array(
+            'methods'             => 'POST',
+            'callback'            => 'wordpress_ai_backup',
+            'permission_callback' => 'wordpress_ai_permission_callback',
+        )
+    );
 }
 add_action( 'rest_api_init', 'wordpress_ai_register_routes' );
 
@@ -214,5 +225,22 @@ function wordpress_ai_execute( WP_REST_Request $request ): WP_REST_Response {
     return new WP_REST_Response(
         array( 'error' => 'Unknown action: ' . $action ),
         400
+    );
+}
+
+/**
+ * Backup endpoint handler (stub).
+ *
+ * Acknowledges a backup request from the cloud platform.
+ *
+ * @return WP_REST_Response
+ */
+function wordpress_ai_backup(): WP_REST_Response {
+    return new WP_REST_Response(
+        array(
+            'success' => true,
+            'message' => 'Backup noted',
+        ),
+        200
     );
 }

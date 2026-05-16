@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { EyeIcon, CodeIcon, SendHorizontal } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
+import type { RiskLevel } from "@/lib/classify-action"
 
 interface Message {
   role: "user" | "assistant"
@@ -17,6 +18,12 @@ interface Message {
 interface Instruction {
   action: string
   params: Record<string, string>
+}
+
+interface ReviewSummary {
+  corrections: string[]
+  warnings: string[]
+  riskLevel: RiskLevel
 }
 
 type SidePanelTab = "preview" | "code"
@@ -71,6 +78,98 @@ function InstructionPreview({ instruction }: { instruction: Instruction }) {
   )
 }
 
+interface SecuritySummaryProps {
+  publishStatus: "idle" | "publishing" | "success" | "error" | "blocked"
+  publishMessage: string
+  reviewResult: ReviewSummary | null
+  isHighRisk: boolean
+  highRiskConfirmed: boolean
+  onToggleHighRisk: () => void
+}
+
+function SecuritySummary({
+  publishStatus,
+  publishMessage,
+  reviewResult,
+  isHighRisk,
+  highRiskConfirmed,
+  onToggleHighRisk,
+}: SecuritySummaryProps) {
+  // After a blocked response
+  if (publishStatus === "blocked") {
+    return (
+      <div className="space-y-1">
+        <p className="text-xs font-medium text-destructive">Blocked by security reviewer</p>
+        {reviewResult?.warnings.map((w, i) => (
+          <p key={i} className="text-xs text-destructive">
+            {w}
+          </p>
+        ))}
+      </div>
+    )
+  }
+
+  // After a successful publish — show review result
+  if (
+    (publishStatus === "success" || publishStatus === "error") &&
+    reviewResult
+  ) {
+    const hasIssues =
+      reviewResult.corrections.length > 0 || reviewResult.warnings.length > 0
+
+    return (
+      <div className="space-y-1">
+        {!hasIssues && publishStatus === "success" && (
+          <div className="flex items-center gap-2 text-xs text-green-700 dark:text-green-400">
+            <span>&#10003;</span>
+            <span>No issues found — published cleanly</span>
+          </div>
+        )}
+        {reviewResult.corrections.map((c, i) => (
+          <p key={i} className="text-xs text-amber-600 dark:text-amber-400">
+            Auto-corrected: {c}
+          </p>
+        ))}
+        {reviewResult.warnings.map((w, i) => (
+          <p key={i} className="text-xs text-amber-600 dark:text-amber-400">
+            Warning: {w}
+          </p>
+        ))}
+      </div>
+    )
+  }
+
+  // Pre-publish idle state
+  if (isHighRisk) {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-lg px-3 py-2">
+          <span>&#9888;</span>
+          <span>High-risk action — confirmation required</span>
+        </div>
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={highRiskConfirmed}
+            onChange={onToggleHighRisk}
+            className="accent-destructive"
+          />
+          <span className="text-xs text-muted-foreground">
+            I understand this is a high-risk action
+          </span>
+        </label>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted rounded-lg px-3 py-2">
+      <span>&#10003;</span>
+      <span>Ready to review and publish</span>
+    </div>
+  )
+}
+
 export default function ChatPage() {
   const params = useParams()
   const siteId = params.id as string
@@ -82,9 +181,12 @@ export default function ChatPage() {
   const [sidePanelOpen, setSidePanelOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<SidePanelTab>("preview")
   const [publishStatus, setPublishStatus] = useState<
-    "idle" | "publishing" | "success" | "error"
+    "idle" | "publishing" | "success" | "error" | "blocked"
   >("idle")
   const [publishMessage, setPublishMessage] = useState("")
+  const [reviewResult, setReviewResult] = useState<ReviewSummary | null>(null)
+  const [isHighRisk, setIsHighRisk] = useState(false)
+  const [highRiskConfirmed, setHighRiskConfirmed] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -106,6 +208,9 @@ export default function ChatPage() {
     setIsLoading(true)
     setPublishStatus("idle")
     setPublishMessage("")
+    setReviewResult(null)
+    setIsHighRisk(false)
+    setHighRiskConfirmed(false)
 
     try {
       const response = await fetch("/api/chat", {
@@ -168,6 +273,17 @@ export default function ChatPage() {
       if (aiInstruction) {
         setInstruction(aiInstruction)
         setSidePanelOpen(true)
+
+        // Classify risk on the client side for gating the Publish button
+        const action = aiInstruction.action.toLowerCase()
+        const isRisky =
+          action !== "create_page" ||
+          action.includes("delete") ||
+          action.includes("user") ||
+          action.includes("role") ||
+          action.includes("auth") ||
+          action.includes("php")
+        setIsHighRisk(isRisky)
       }
     } catch (error) {
       setMessages((prev) => [
@@ -189,6 +305,7 @@ export default function ChatPage() {
     if (!instruction) return
     setPublishStatus("publishing")
     setPublishMessage("")
+    setReviewResult(null)
 
     try {
       const response = await fetch(`/api/sites/${siteId}/execute`, {
@@ -201,14 +318,31 @@ export default function ChatPage() {
         success?: boolean
         post_id?: number
         error?: string
+        warnings?: string[]
+        review?: ReviewSummary
       }
 
       if (response.ok && data.success) {
+        if (data.review) {
+          setReviewResult(data.review)
+        }
         setPublishStatus("success")
         setPublishMessage(
           `Published successfully${data.post_id ? ` (post ID: ${data.post_id})` : ""}`
         )
+      } else if (response.status === 400 && data.error === "Blocked by security reviewer") {
+        // Blocked — surface the warnings from the review
+        setReviewResult({
+          corrections: [],
+          warnings: data.warnings ?? [],
+          riskLevel: "high",
+        })
+        setPublishStatus("blocked")
+        setPublishMessage(data.error)
       } else {
+        if (data.review) {
+          setReviewResult(data.review)
+        }
         setPublishStatus("error")
         setPublishMessage(data.error ?? "Failed to publish")
       }
@@ -219,6 +353,11 @@ export default function ChatPage() {
       )
     }
   }
+
+  const publishDisabled =
+    publishStatus === "publishing" ||
+    publishStatus === "success" ||
+    (isHighRisk && !highRiskConfirmed)
 
   return (
     <div className="flex h-[calc(100vh-53px)] overflow-hidden">
@@ -370,10 +509,14 @@ export default function ChatPage() {
 
             {/* Security summary + publish */}
             <div className="border-t border-border p-4 space-y-3">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted rounded-lg px-3 py-2">
-                <span>&#10003;</span>
-                <span>Changes reviewed — ready to publish</span>
-              </div>
+              <SecuritySummary
+                publishStatus={publishStatus}
+                publishMessage={publishMessage}
+                reviewResult={reviewResult}
+                isHighRisk={isHighRisk}
+                highRiskConfirmed={highRiskConfirmed}
+                onToggleHighRisk={() => setHighRiskConfirmed((v) => !v)}
+              />
 
               {publishStatus === "success" && (
                 <p className="text-xs text-green-600 dark:text-green-400">
@@ -386,17 +529,17 @@ export default function ChatPage() {
 
               <Button
                 onClick={() => void handlePublish()}
-                disabled={
-                  publishStatus === "publishing" ||
-                  publishStatus === "success"
-                }
+                disabled={publishDisabled}
+                variant={publishStatus === "blocked" ? "destructive" : "default"}
                 className="w-full"
               >
                 {publishStatus === "publishing"
                   ? "Publishing..."
                   : publishStatus === "success"
                     ? "Published"
-                    : "Publish"}
+                    : publishStatus === "blocked"
+                      ? "Blocked"
+                      : "Publish"}
               </Button>
             </div>
           </>

@@ -1,5 +1,7 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { reviewInstruction } from "@/lib/security-reviewer"
+import type { Instruction } from "@/lib/classify-action"
 import { NextRequest } from "next/server"
 
 export async function POST(
@@ -29,6 +31,36 @@ export async function POST(
     return Response.json({ error: "Missing instruction" }, { status: 400 })
   }
 
+  // Security review
+  const review = await reviewInstruction(instruction as Instruction)
+
+  if (!review.approved) {
+    return Response.json(
+      {
+        error: "Blocked by security reviewer",
+        warnings: review.warnings,
+      },
+      { status: 400 }
+    )
+  }
+
+  // Auto-backup stub
+  try {
+    const backupUrl = `${site.url}/wp-json/wordpress-ai/v1/backup`
+    await fetch(backupUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${site.apiKey}`,
+      },
+      signal: AbortSignal.timeout(10000),
+    })
+    // Backup is best-effort; continue even if it fails
+  } catch {
+    // Non-fatal — proceed with execute
+  }
+
+  // Execute the (potentially modified) instruction
   const executeUrl = `${site.url}/wp-json/wordpress-ai/v1/execute`
 
   try {
@@ -38,7 +70,7 @@ export async function POST(
         "Content-Type": "application/json",
         Authorization: `Bearer ${site.apiKey}`,
       },
-      body: JSON.stringify(instruction),
+      body: JSON.stringify(review.instruction),
       signal: AbortSignal.timeout(15000),
     })
 
@@ -51,7 +83,14 @@ export async function POST(
       )
     }
 
-    return Response.json(data)
+    return Response.json({
+      ...(data as Record<string, unknown>),
+      review: {
+        corrections: review.corrections,
+        warnings: review.warnings,
+        riskLevel: review.riskLevel,
+      },
+    })
   } catch (error) {
     return Response.json(
       {
