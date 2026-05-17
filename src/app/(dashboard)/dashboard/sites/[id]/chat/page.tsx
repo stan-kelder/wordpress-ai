@@ -133,12 +133,7 @@ function InstructionPreview({ instruction }: { instruction: Instruction }) {
 
   // Shared section for status + content preview
   function StatusRow() {
-    if (!params?.status) return null
-    return (
-      <p className="text-sm text-muted-foreground">
-        Status: <span className="text-foreground">{String(params.status)}</span>
-      </p>
-    )
+    return null
   }
 
   function ContentPreview() {
