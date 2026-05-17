@@ -6,7 +6,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { EyeIcon, CodeIcon, SendHorizontal, Globe02Icon } from "@hugeicons/core-free-icons"
+import { EyeIcon, CodeIcon, SendHorizontal, Globe02Icon, Cancel01Icon, SidebarRight01Icon } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
 import { classifyAction } from "@/lib/classify-action"
 import type { RiskLevel } from "@/lib/classify-action"
@@ -524,7 +524,7 @@ export default function ChatPage() {
       {/* Chat area */}
       <div
         className={cn(
-          "flex flex-col transition-all duration-300",
+          "flex flex-col transition-all duration-300 min-w-0",
           sidePanelOpen ? "w-1/2" : "w-full"
         )}
       >
@@ -559,19 +559,31 @@ export default function ChatPage() {
               {currentSite.url}
             </span>
           )}
-          {currentSite && (
-            <span
-              className={cn(
-                "ml-auto inline-block size-2 rounded-full shrink-0",
-                currentSite.connected ? "bg-green-500" : "bg-muted-foreground/40"
-              )}
-              title={currentSite.connected ? "Connected" : "Not connected"}
-            />
-          )}
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            {currentSite && (
+              <span
+                className={cn(
+                  "inline-block size-2 rounded-full",
+                  currentSite.connected ? "bg-green-500" : "bg-muted-foreground/40"
+                )}
+                title={currentSite.connected ? "Connected" : "Not connected"}
+              />
+            )}
+            {!sidePanelOpen && steps.length > 0 && (
+              <button
+                onClick={() => setSidePanelOpen(true)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title="Open panel"
+              >
+                <HugeiconsIcon icon={SidebarRight01Icon} size={16} />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
+        <div className="flex-1 overflow-y-auto py-6">
+        <div className={cn("space-y-4 mx-auto px-6", sidePanelOpen ? "max-w-full" : "max-w-2xl")}>
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center space-y-2">
               <p className="text-lg font-medium">
@@ -620,32 +632,35 @@ export default function ChatPage() {
 
           <div ref={messagesEndRef} />
         </div>
+        </div>
 
         {/* Input area */}
         <div className="border-t border-border px-6 py-4">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              void sendMessage()
-            }}
-            className="flex gap-2"
-          >
-            <Input
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask me to manage your WordPress site..."
-              disabled={isLoading}
-              className="flex-1"
-            />
-            <Button
-              type="submit"
-              disabled={isLoading || !input.trim()}
-              size="icon"
+          <div className={cn("mx-auto", sidePanelOpen ? "max-w-full" : "max-w-2xl")}>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                void sendMessage()
+              }}
+              className="flex gap-2"
             >
-              <HugeiconsIcon icon={SendHorizontal} size={16} />
-            </Button>
-          </form>
+              <Input
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask me to manage your WordPress site..."
+                disabled={isLoading}
+                className="flex-1"
+              />
+              <Button
+                type="submit"
+                disabled={isLoading || !input.trim()}
+                size="icon"
+              >
+                <HugeiconsIcon icon={SendHorizontal} size={16} />
+              </Button>
+            </form>
+          </div>
         </div>
       </div>
 
@@ -683,6 +698,13 @@ export default function ChatPage() {
                 title="JSON instruction"
               >
                 <HugeiconsIcon icon={CodeIcon} size={16} />
+              </button>
+              <button
+                onClick={() => setSidePanelOpen(false)}
+                className="ml-auto p-2 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+                title="Close panel"
+              >
+                <HugeiconsIcon icon={Cancel01Icon} size={16} />
               </button>
             </div>
 
