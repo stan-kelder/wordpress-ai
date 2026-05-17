@@ -6,7 +6,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { EyeIcon, CodeIcon, SendHorizontal, Globe02Icon, Settings01Icon } from "@hugeicons/core-free-icons"
+import { EyeIcon, CodeIcon, SendHorizontal, Globe02Icon } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
 import { classifyAction } from "@/lib/classify-action"
 import type { RiskLevel } from "@/lib/classify-action"
@@ -54,11 +54,19 @@ const HTML_CONTENT_ACTIONS = new Set([
   "update_product",
 ])
 
+function WpIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zM3.5 12c0-1.232.264-2.403.734-3.461l4.04 11.07A8.5 8.5 0 013.5 12zM12 20.5a8.46 8.46 0 01-2.4-.347l2.549-7.405 2.61 7.152.03.057A8.46 8.46 0 0112 20.5zm1.17-12.27c.51-.026.97-.08.97-.08.456-.054.402-.724-.054-.697 0 0-1.372.107-2.258.107-.832 0-2.231-.107-2.231-.107-.456-.027-.51.67-.054.697 0 0 .432.054.889.08l1.32 3.617-1.854 5.558-3.08-9.175c.51-.026.97-.08.97-.08.456-.054.402-.724-.054-.697 0 0-1.372.107-2.258.107-.159 0-.347-.004-.545-.01A8.506 8.506 0 0112 3.5c2.224 0 4.254.856 5.778 2.254a2.35 2.35 0 00-.152-.005c-.832 0-1.422.724-1.422 1.504 0 .697.402 1.288.832 1.986.322.564.697 1.288.697 2.333 0 .724-.278 1.558-.64 2.734l-.839 2.806-3.116-9.282zm2.854 11.18l2.604-7.522c.485-1.22.647-2.188.647-3.054a5.62 5.62 0 00-.057-.877A8.507 8.507 0 0120.5 12a8.49 8.49 0 01-4.476 7.41z" />
+    </svg>
+  )
+}
+
 function LocationBadge({ action }: { action: string }) {
   const isAdmin = WP_ADMIN_ACTIONS.has(action)
   return (
     <span className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-background border border-border rounded px-1.5 py-0.5">
-      <HugeiconsIcon icon={isAdmin ? Settings01Icon : Globe02Icon} size={10} />
+      {isAdmin ? <WpIcon /> : <HugeiconsIcon icon={Globe02Icon} size={10} />}
       {isAdmin ? "WP Admin" : "Your Website"}
     </span>
   )
@@ -138,24 +146,10 @@ function InstructionPreview({ instruction }: { instruction: Instruction }) {
     )
   }
 
-  function ActionLabel({ label }: { label: string }) {
-    return (
-      <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-        {label}
-      </p>
-    )
-  }
-
   if (action === "create_page") {
     return (
-      <div className="space-y-3">
-        <ActionLabel label="Create Page" />
-        <p className="text-sm">
-          Will create page:{" "}
-          <strong className="text-foreground">
-            {String(params?.title ?? "Untitled")}
-          </strong>
-        </p>
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">Will create page: {String(params?.title ?? "Untitled")}</p>
         <StatusRow />
         <ContentPreview />
       </div>
@@ -164,14 +158,9 @@ function InstructionPreview({ instruction }: { instruction: Instruction }) {
 
   if (action === "update_page") {
     return (
-      <div className="space-y-3">
-        <ActionLabel label="Update Page" />
-        <p className="text-sm">
-          Will update page ID{" "}
-          <strong className="text-foreground">{String(params?.id ?? "?")}</strong>
-          {params?.title ? (
-            <>: <strong className="text-foreground">{String(params.title)}</strong></>
-          ) : null}
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">
+          Will update page{params?.title ? `: ${String(params.title)}` : ` ID ${String(params?.id ?? "?")}`}
         </p>
         <StatusRow />
         <ContentPreview />
@@ -181,12 +170,8 @@ function InstructionPreview({ instruction }: { instruction: Instruction }) {
 
   if (action === "delete_page") {
     return (
-      <div className="space-y-3">
-        <ActionLabel label="Delete Page" />
-        <p className="text-sm text-destructive font-medium">
-          Will permanently delete page ID{" "}
-          <strong>{String(params?.id ?? "?")}</strong>
-        </p>
+      <div className="space-y-2">
+        <p className="text-sm font-semibold text-destructive">Will permanently delete page ID {String(params?.id ?? "?")}</p>
         <p className="text-xs text-destructive/70">This action cannot be undone.</p>
       </div>
     )
@@ -194,18 +179,10 @@ function InstructionPreview({ instruction }: { instruction: Instruction }) {
 
   if (action === "create_post") {
     return (
-      <div className="space-y-3">
-        <ActionLabel label="Create Post" />
-        <p className="text-sm">
-          Will create post:{" "}
-          <strong className="text-foreground">
-            {String(params?.title ?? "Untitled")}
-          </strong>
-        </p>
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">Will create post: {String(params?.title ?? "Untitled")}</p>
         {params?.category && (
-          <p className="text-sm text-muted-foreground">
-            Category: <span className="text-foreground">{String(params.category)}</span>
-          </p>
+          <p className="text-sm text-muted-foreground">Category: <span className="text-foreground">{String(params.category)}</span></p>
         )}
         <StatusRow />
         <ContentPreview />
@@ -215,14 +192,9 @@ function InstructionPreview({ instruction }: { instruction: Instruction }) {
 
   if (action === "update_post") {
     return (
-      <div className="space-y-3">
-        <ActionLabel label="Update Post" />
-        <p className="text-sm">
-          Will update post ID{" "}
-          <strong className="text-foreground">{String(params?.id ?? "?")}</strong>
-          {params?.title ? (
-            <>: <strong className="text-foreground">{String(params.title)}</strong></>
-          ) : null}
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">
+          Will update post{params?.title ? `: ${String(params.title)}` : ` ID ${String(params?.id ?? "?")}`}
         </p>
         <StatusRow />
         <ContentPreview />
@@ -232,12 +204,8 @@ function InstructionPreview({ instruction }: { instruction: Instruction }) {
 
   if (action === "delete_post") {
     return (
-      <div className="space-y-3">
-        <ActionLabel label="Delete Post" />
-        <p className="text-sm text-destructive font-medium">
-          Will permanently delete post ID{" "}
-          <strong>{String(params?.id ?? "?")}</strong>
-        </p>
+      <div className="space-y-2">
+        <p className="text-sm font-semibold text-destructive">Will permanently delete post ID {String(params?.id ?? "?")}</p>
         <p className="text-xs text-destructive/70">This action cannot be undone.</p>
       </div>
     )
@@ -245,18 +213,10 @@ function InstructionPreview({ instruction }: { instruction: Instruction }) {
 
   if (action === "add_menu_item") {
     return (
-      <div className="space-y-3">
-        <ActionLabel label="Add Menu Item" />
-        <p className="text-sm">
-          Will add{" "}
-          <strong className="text-foreground">{String(params?.title ?? "item")}</strong>{" "}
-          to menu ID{" "}
-          <strong className="text-foreground">{String(params?.menu_id ?? "?")}</strong>
-        </p>
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">Will add "{String(params?.title ?? "item")}" to the menu</p>
         {params?.url && (
-          <p className="text-sm text-muted-foreground truncate">
-            URL: <span className="text-foreground">{String(params.url)}</span>
-          </p>
+          <p className="text-sm text-muted-foreground truncate">URL: <span className="text-foreground">{String(params.url)}</span></p>
         )}
       </div>
     )
@@ -264,23 +224,12 @@ function InstructionPreview({ instruction }: { instruction: Instruction }) {
 
   if (action === "update_menu_item") {
     return (
-      <div className="space-y-3">
-        <ActionLabel label="Update Menu Item" />
-        <p className="text-sm">
-          Will update item ID{" "}
-          <strong className="text-foreground">{String(params?.item_id ?? "?")}</strong>{" "}
-          in menu ID{" "}
-          <strong className="text-foreground">{String(params?.menu_id ?? "?")}</strong>
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">
+          Will update menu item{params?.title ? `: "${String(params.title)}"` : ` ID ${String(params?.item_id ?? "?")}`}
         </p>
-        {params?.title && (
-          <p className="text-sm text-muted-foreground">
-            New title: <span className="text-foreground">{String(params.title)}</span>
-          </p>
-        )}
         {params?.url && (
-          <p className="text-sm text-muted-foreground truncate">
-            New URL: <span className="text-foreground">{String(params.url)}</span>
-          </p>
+          <p className="text-sm text-muted-foreground truncate">New URL: <span className="text-foreground">{String(params.url)}</span></p>
         )}
       </div>
     )
@@ -288,161 +237,93 @@ function InstructionPreview({ instruction }: { instruction: Instruction }) {
 
   if (action === "remove_menu_item") {
     return (
-      <div className="space-y-3">
-        <ActionLabel label="Remove Menu Item" />
-        <p className="text-sm">
-          Will remove item ID{" "}
-          <strong className="text-foreground">{String(params?.item_id ?? "?")}</strong>{" "}
-          from menu ID{" "}
-          <strong className="text-foreground">{String(params?.menu_id ?? "?")}</strong>
-        </p>
+      <div className="space-y-2">
+        <p className="text-sm font-semibold text-destructive">Will remove menu item ID {String(params?.item_id ?? "?")}</p>
       </div>
     )
   }
 
   if (action === "update_setting") {
     return (
-      <div className="space-y-3">
-        <ActionLabel label="Update Setting" />
-        <p className="text-sm">
-          Will update setting:{" "}
-          <strong className="text-foreground">{String(params?.option ?? "?")}</strong>
-          {" "}→{" "}
-          <strong className="text-foreground">{String(params?.value ?? "?")}</strong>
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">
+          Will update {String(params?.option ?? "setting")}: <span className="text-muted-foreground line-through">{String(params?.option ?? "")}</span> → {String(params?.value ?? "?")}
         </p>
-        <p className="text-xs text-amber-600 dark:text-amber-400">
-          Changing site settings can affect all visitors.
-        </p>
+        <p className="text-xs text-amber-600 dark:text-amber-400">Changing site settings affects all visitors.</p>
       </div>
     )
   }
 
   if (action === "create_product") {
     return (
-      <div className="space-y-3">
-        <ActionLabel label="Create Product" />
-        <p className="text-sm">
-          Will create product:{" "}
-          <strong className="text-foreground">{String(params?.name ?? "Untitled")}</strong>
-        </p>
-        {params?.price && (
-          <p className="text-sm text-muted-foreground">
-            Price: <span className="text-foreground">{String(params.price)}</span>
-          </p>
-        )}
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">Will create product: {String(params?.name ?? "Untitled")}</p>
+        {params?.price && <p className="text-sm text-muted-foreground">Price: <span className="text-foreground">{String(params.price)}</span></p>}
         <StatusRow />
+        <ContentPreview />
       </div>
     )
   }
 
   if (action === "update_product") {
     return (
-      <div className="space-y-3">
-        <ActionLabel label="Update Product" />
-        <p className="text-sm">
-          Will update product ID{" "}
-          <strong className="text-foreground">{String(params?.id ?? "?")}</strong>
-          {params?.name ? (
-            <>: <strong className="text-foreground">{String(params.name)}</strong></>
-          ) : null}
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">
+          Will update product{params?.name ? `: ${String(params.name)}` : ` ID ${String(params?.id ?? "?")}`}
         </p>
-        {params?.price && (
-          <p className="text-sm text-muted-foreground">
-            New price: <span className="text-foreground">{String(params.price)}</span>
-          </p>
-        )}
+        {params?.price && <p className="text-sm text-muted-foreground">New price: <span className="text-foreground">{String(params.price)}</span></p>}
         <StatusRow />
+        <ContentPreview />
       </div>
     )
   }
 
   if (action === "create_user") {
     return (
-      <div className="space-y-3">
-        <ActionLabel label="Create User" />
-        <p className="text-sm">
-          Will create user:{" "}
-          <strong className="text-foreground">{String(params?.username ?? "?")}</strong>{" "}
-          (<span className="text-muted-foreground">{String(params?.email ?? "no email")}</span>)
-        </p>
-        {params?.role && (
-          <p className="text-sm text-muted-foreground">
-            Role: <span className="text-foreground">{String(params.role)}</span>
-          </p>
-        )}
-        <p className="text-xs text-amber-600 dark:text-amber-400">
-          A new account will be created on your WordPress site.
-        </p>
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">Will create user: {String(params?.username ?? "?")} ({String(params?.email ?? "no email")})</p>
+        {params?.role && <p className="text-sm text-muted-foreground">Role: <span className="text-foreground">{String(params.role)}</span></p>}
+        <p className="text-xs text-amber-600 dark:text-amber-400">A new account will be created on your site.</p>
       </div>
     )
   }
 
   if (action === "update_user_role") {
     return (
-      <div className="space-y-3">
-        <ActionLabel label="Update User Role" />
-        <p className="text-sm">
-          Will change role of user ID{" "}
-          <strong className="text-foreground">{String(params?.user_id ?? "?")}</strong>{" "}
-          to{" "}
-          <strong className="text-foreground">{String(params?.role ?? "?")}</strong>
-        </p>
-        <p className="text-xs text-amber-600 dark:text-amber-400">
-          Changing roles affects what this user can do on your site.
-        </p>
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">Will change user ID {String(params?.user_id ?? "?")} role to {String(params?.role ?? "?")}</p>
+        <p className="text-xs text-amber-600 dark:text-amber-400">Changing roles affects what this user can do.</p>
       </div>
     )
   }
 
   if (action === "execute_php") {
     return (
-      <div className="space-y-3">
-        <ActionLabel label="Execute PHP" />
-        <p className="text-sm text-muted-foreground">
-          {String(params?.description ?? "Custom PHP execution")}
-        </p>
-        <div>
-          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-1">
-            PHP Code
-          </p>
-          <pre className="text-xs bg-muted rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words font-mono">
-            {String(params?.code ?? "")}
-          </pre>
-        </div>
-        <p className="text-xs text-amber-600 dark:text-amber-400">
-          This executes PHP directly on your WordPress site. Review the code carefully.
-        </p>
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">{String(params?.description ?? "Will execute PHP on your site")}</p>
+        <pre className="text-xs bg-muted rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words font-mono">
+          {String(params?.code ?? "")}
+        </pre>
+        <p className="text-xs text-amber-600 dark:text-amber-400">Review the code carefully before executing.</p>
       </div>
     )
   }
 
   if (action === "write_persistent_code") {
     return (
-      <div className="space-y-3">
-        <ActionLabel label="Persistent Code" />
-        <p className="text-sm text-muted-foreground">
-          {String(params?.description ?? "Persistent WordPress customization")}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Slug: <code className="bg-muted px-1 rounded">{String(params?.slug ?? "")}</code>
-        </p>
-        <div>
-          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-1">PHP Code</p>
-          <pre className="text-xs bg-muted rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words font-mono">
-            {String(params?.code ?? "")}
-          </pre>
-        </div>
-        <p className="text-xs text-amber-600 dark:text-amber-400">
-          This writes PHP to wp-content/mu-plugins/ and runs permanently on your site.
-        </p>
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">{String(params?.description ?? "Will add persistent code to your site")}</p>
+        <p className="text-xs text-muted-foreground">Slug: <code className="bg-muted px-1 rounded">{String(params?.slug ?? "")}</code></p>
+        <pre className="text-xs bg-muted rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words font-mono">
+          {String(params?.code ?? "")}
+        </pre>
+        <p className="text-xs text-amber-600 dark:text-amber-400">This writes PHP to mu-plugins/ and runs permanently.</p>
       </div>
     )
   }
 
   return (
-    <p className="text-sm text-muted-foreground">
-      Action: <strong>{action}</strong>
-    </p>
+    <p className="text-sm font-semibold">Will execute: {action}</p>
   )
 }
 
@@ -452,7 +333,7 @@ function StepBadge({ status, riskLevel }: { status: Step["status"], riskLevel: R
   if (status === "error") return <span className="text-xs text-destructive">✗ Failed</span>
   if (status === "blocked") return <span className="text-xs text-destructive">⊘ Blocked</span>
   if (riskLevel === "high") return <span className="text-xs text-amber-600 dark:text-amber-400">⚠ High risk</span>
-  return <span className="text-xs text-muted-foreground">Pending</span>
+  return null
 }
 
 interface Site {
