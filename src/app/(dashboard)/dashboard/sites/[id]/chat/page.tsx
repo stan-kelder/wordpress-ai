@@ -6,7 +6,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { EyeIcon, CodeIcon, SendHorizontal } from "@hugeicons/core-free-icons"
+import { EyeIcon, CodeIcon, SendHorizontal, Globe02Icon, Settings01Icon } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
 import { classifyAction } from "@/lib/classify-action"
 import type { RiskLevel } from "@/lib/classify-action"
@@ -37,6 +37,76 @@ interface Step {
   review: ReviewSummary | null
 }
 
+const WP_ADMIN_ACTIONS = new Set([
+  "write_persistent_code",
+  "execute_php",
+  "create_user",
+  "update_user_role",
+  "update_setting",
+])
+
+const HTML_CONTENT_ACTIONS = new Set([
+  "create_page",
+  "update_page",
+  "create_post",
+  "update_post",
+  "create_product",
+  "update_product",
+])
+
+function LocationBadge({ action }: { action: string }) {
+  const isAdmin = WP_ADMIN_ACTIONS.has(action)
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-background border border-border rounded px-1.5 py-0.5">
+      <HugeiconsIcon icon={isAdmin ? Settings01Icon : Globe02Icon} size={10} />
+      {isAdmin ? "WP Admin" : "Your Website"}
+    </span>
+  )
+}
+
+function HtmlPreview({ html }: { html: string }) {
+  const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.7;color:#333;padding:16px;margin:0;font-size:14px;}h1,h2,h3,h4{color:#111;margin:0 0 .5em;}p{margin:0 0 1em;}img{max-width:100%;}a{color:#0073aa;}ul,ol{margin:0 0 1em;padding-left:1.5em;}</style></head><body>${html}</body></html>`
+  return (
+    <iframe
+      srcDoc={doc}
+      sandbox="allow-same-origin"
+      className="w-full rounded border border-border bg-white mt-2"
+      style={{ height: "180px" }}
+      title="Content preview"
+    />
+  )
+}
+
+function CodeBlock({ code }: { code: string }) {
+  const [html, setHtml] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch("/api/highlight", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, lang: "json" }),
+    })
+      .then((r) => r.json())
+      .then((data: { html: string }) => setHtml(data.html))
+      .catch(() => {})
+  }, [code])
+
+  if (!html) {
+    return (
+      <pre className="text-xs bg-zinc-900 text-zinc-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-all">
+        {code}
+      </pre>
+    )
+  }
+
+  return (
+    <div
+      className="text-xs rounded-lg overflow-auto [&>pre]:!m-0 [&>pre]:p-4 [&>pre]:rounded-lg [&>pre]:text-xs"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  )
+}
+
 function InstructionPreview({ instruction }: { instruction: Instruction }) {
   const { action, params } = instruction
 
@@ -52,6 +122,10 @@ function InstructionPreview({ instruction }: { instruction: Instruction }) {
 
   function ContentPreview() {
     if (!params?.content) return null
+    const isHtmlAction = HTML_CONTENT_ACTIONS.has(action)
+    if (isHtmlAction) {
+      return <HtmlPreview html={String(params.content)} />
+    }
     return (
       <div>
         <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-1">
@@ -570,7 +644,7 @@ export default function ChatPage() {
       <div
         className={cn(
           "flex flex-col transition-all duration-300",
-          sidePanelOpen ? "flex-1" : "w-full"
+          sidePanelOpen ? "w-1/2" : "w-full"
         )}
       >
         {/* Chat header */}
@@ -698,7 +772,7 @@ export default function ChatPage() {
       <div
         className={cn(
           "border-l border-border flex flex-col transition-all duration-300 overflow-hidden",
-          sidePanelOpen ? "w-96" : "w-0"
+          sidePanelOpen ? "w-1/2" : "w-0"
         )}
       >
         {sidePanelOpen && steps.length > 0 && (
@@ -737,9 +811,12 @@ export default function ChatPage() {
                 {steps.map((step, i) => (
                   <div key={i} className="border border-border rounded-lg overflow-hidden">
                     <div className="px-3 py-2 bg-muted flex items-center justify-between">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        Step {i + 1}{steps.length > 1 ? ` of ${steps.length}` : ""}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-muted-foreground">
+                          Step {i + 1}{steps.length > 1 ? ` of ${steps.length}` : ""}
+                        </span>
+                        <LocationBadge action={step.instruction.action} />
+                      </div>
                       <StepBadge status={step.status} riskLevel={step.riskLevel} />
                     </div>
                     <div className="p-3 space-y-2">
@@ -757,9 +834,7 @@ export default function ChatPage() {
                 {steps.map((step, i) => (
                   <div key={i}>
                     {steps.length > 1 && <p className="text-xs text-muted-foreground mb-1">Step {i + 1}</p>}
-                    <pre className="text-xs bg-muted rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-all">
-                      {JSON.stringify(step.instruction, null, 2)}
-                    </pre>
+                    <CodeBlock code={JSON.stringify(step.instruction, null, 2)} />
                   </div>
                 ))}
               </div>
