@@ -815,6 +815,21 @@ function wordpress_ai_execute( WP_REST_Request $request ): WP_REST_Response {
             }
         }
 
+        // Detect bare WordPress registration calls that must be inside hooks.
+        // These crash WordPress when called at mu-plugin load time.
+        $hook_required = array( 'register_post_type', 'add_menu_page', 'add_submenu_page', 'add_shortcode', 'register_widget' );
+        foreach ( $hook_required as $fn ) {
+            // Flag if the function is called outside of an add_action wrapper
+            if ( preg_match( '/\b' . preg_quote( $fn, '/' ) . '\s*\(/i', $code ) ) {
+                if ( ! preg_match( '/add_action\s*\(/', $code ) ) {
+                    return new WP_REST_Response(
+                        array( 'error' => $fn . '() must be wrapped in add_action() — calling it directly in persistent code crashes WordPress.' ),
+                        400
+                    );
+                }
+            }
+        }
+
         $mu_dir = WP_CONTENT_DIR . '/mu-plugins';
         $file   = $mu_dir . '/wordpress-ai-persistent.php';
 

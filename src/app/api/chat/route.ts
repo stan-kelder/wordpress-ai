@@ -86,6 +86,13 @@ Persistent Code (for admin menus, hooks, shortcode definitions, custom post type
 
 Use write_persistent_code for: add_menu_page(), register_post_type(), add_action(), add_filter(), add_shortcode(), etc. Each slug overwrites its previous block, so re-running with the same slug is safe. Do NOT include <?php tags.
 
+CRITICAL for write_persistent_code: NEVER call register_post_type(), add_menu_page(), add_shortcode(), or any WordPress registration function at the top level. ALWAYS wrap them in the correct hook:
+- register_post_type() → wrap in add_action('init', function() { ... });
+- add_menu_page() → wrap in add_action('admin_menu', function() { ... });
+- add_shortcode() → wrap in add_action('init', function() { ... });
+- widget registration → wrap in add_action('widgets_init', function() { ... });
+Calling these functions outside of their hooks crashes WordPress.
+
 AVAILABLE QUERY TOOLS:
 - list_pages: lists all published pages
 - list_posts: lists recent posts
