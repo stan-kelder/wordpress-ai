@@ -73,13 +73,26 @@ function LocationBadge({ action }: { action: string }) {
 }
 
 function HtmlPreview({ html }: { html: string }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [height, setHeight] = useState(120)
+
   const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.7;color:#333;padding:16px;margin:0;font-size:14px;}h1,h2,h3,h4{color:#111;margin:0 0 .5em;}p{margin:0 0 1em;}img{max-width:100%;}a{color:#0073aa;}ul,ol{margin:0 0 1em;padding-left:1.5em;}</style></head><body>${html}</body></html>`
+
+  function onLoad() {
+    const body = iframeRef.current?.contentDocument?.body
+    if (!body) return
+    const maxHeight = window.innerHeight * 0.6
+    setHeight(Math.min(body.scrollHeight + 1, maxHeight))
+  }
+
   return (
     <iframe
+      ref={iframeRef}
       srcDoc={doc}
       sandbox="allow-same-origin"
+      onLoad={onLoad}
       className="w-full rounded border border-border bg-white mt-2"
-      style={{ height: "180px" }}
+      style={{ height, maxHeight: "60vh" }}
       title="Content preview"
     />
   )
