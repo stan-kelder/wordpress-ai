@@ -815,15 +815,44 @@ function wordpress_ai_execute( WP_REST_Request $request ): WP_REST_Response {
             }
         }
 
-        // Detect bare WordPress registration calls that must be inside hooks.
-        // These crash WordPress when called at mu-plugin load time.
-        $hook_required = array( 'register_post_type', 'add_menu_page', 'add_submenu_page', 'add_shortcode', 'register_widget' );
+        // Block flush_rewrite_rules() entirely — running it on every page load corrupts permalinks and kills performance.
+        if ( preg_match( '/\bflush_rewrite_rules\s*\(/i', $code ) ) {
+            return new WP_REST_Response(
+                array( 'error' => 'flush_rewrite_rules() is not allowed in persistent code — it corrupts permalinks and causes severe performance issues when run on every page load.' ),
+                400
+            );
+        }
+
+        // Block updates to critical options that lock users out of the site.
+        $critical_options = array( 'siteurl', 'home', 'active_plugins', 'auth_key', 'secure_auth_key', 'admin_email' );
+        foreach ( $critical_options as $opt ) {
+            if ( preg_match( '/update_option\s*\(\s*[\'"]' . preg_quote( $opt, '/' ) . '[\'"]/', $code ) ) {
+                return new WP_REST_Response(
+                    array( 'error' => 'Updating "' . $opt . '" via persistent code is not allowed — an incorrect value can lock you out of your site.' ),
+                    400
+                );
+            }
+        }
+
+        // Detect bare WordPress registration/enqueue calls that must be inside hooks.
+        // These crash or silently fail when called at mu-plugin load time.
+        $hook_required = array(
+            'register_post_type',
+            'add_menu_page',
+            'add_submenu_page',
+            'add_shortcode',
+            'register_widget',
+            'wp_enqueue_script',
+            'wp_enqueue_style',
+            'wp_register_script',
+            'wp_register_style',
+            'add_rewrite_rule',
+        );
         foreach ( $hook_required as $fn ) {
-            // Flag if the function is called outside of an add_action wrapper
             if ( preg_match( '/\b' . preg_quote( $fn, '/' ) . '\s*\(/i', $code ) ) {
                 if ( ! preg_match( '/add_action\s*\(/', $code ) ) {
                     return new WP_REST_Response(
-                        array( 'error' => $fn . '() must be wrapped in add_action() — calling it directly in persistent code crashes WordPress.' ),
+                        array( 'error' => $fn . '() must be wrapped in add_action() — calling it directly in persistent code crashes or silently fails in WordPress.' ),
                         400
                     );
                 }

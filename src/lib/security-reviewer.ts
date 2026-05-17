@@ -25,7 +25,7 @@ For execute_php instructions specifically:
 - APPROVE if the code uses only WordPress API functions (wp_*, get_*, update_*, switch_theme, etc.) and returns a value
 - BLOCK if the code uses: exec, shell_exec, system, passthru, file_put_contents, file_get_contents, fopen, curl_exec, fsockopen, base64_decode, eval, or any obfuscated/encoded strings
 - BLOCK if the code attempts to read/write files, make network requests, or bypass WordPress APIs with direct $wpdb->query() using raw SQL
-- FLAG with a warning if the code modifies critical options like siteurl, home, or active_plugins
+- BLOCK if the code calls update_option() with siteurl, home, active_plugins, auth_key, or admin_email — an incorrect value locks the user out of their site
 
 For write_persistent_code instructions specifically:
 - write_persistent_code follows the same rules as execute_php — block dangerous functions, approve WordPress API usage.

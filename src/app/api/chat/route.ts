@@ -86,12 +86,15 @@ Persistent Code (for admin menus, hooks, shortcode definitions, custom post type
 
 Use write_persistent_code for: add_menu_page(), register_post_type(), add_action(), add_filter(), add_shortcode(), etc. Each slug overwrites its previous block, so re-running with the same slug is safe. Do NOT include <?php tags.
 
-CRITICAL for write_persistent_code: NEVER call register_post_type(), add_menu_page(), add_shortcode(), or any WordPress registration function at the top level. ALWAYS wrap them in the correct hook:
-- register_post_type() → wrap in add_action('init', function() { ... });
-- add_menu_page() → wrap in add_action('admin_menu', function() { ... });
-- add_shortcode() → wrap in add_action('init', function() { ... });
-- widget registration → wrap in add_action('widgets_init', function() { ... });
-Calling these functions outside of their hooks crashes WordPress.
+CRITICAL for write_persistent_code — these rules are enforced server-side and will block execution if violated:
+1. NEVER call registration functions at the top level. ALWAYS wrap in the correct hook:
+   - register_post_type(), add_rewrite_rule() → add_action('init', function() { ... });
+   - add_menu_page(), add_submenu_page() → add_action('admin_menu', function() { ... });
+   - add_shortcode() → add_action('init', function() { ... });
+   - wp_enqueue_script(), wp_enqueue_style() → add_action('wp_enqueue_scripts', function() { ... });
+   - register_widget() → add_action('widgets_init', function() { ... });
+2. NEVER use flush_rewrite_rules() — it corrupts permalinks and causes severe performance issues when run on every page load.
+3. NEVER call update_option() with: siteurl, home, active_plugins, auth_key, admin_email — an incorrect value locks the user out of their site.
 
 AVAILABLE QUERY TOOLS:
 - list_pages: lists all published pages
