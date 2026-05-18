@@ -1,14 +1,4 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "wordpress": {
-      "type": "local",
-      "command": ["npx", "tsx", "/Users/stankelder/Claude/wordpress-ai/mcp/server.ts"],
-      "enabled": true,
-      "environment": {
-        "WP_URL": "http://wordpressaisite.local",
-        "WP_API_KEY": "cmp8qow1a0001zgw10kbv9w4t"
-      }
-    }
-  }
+  "model": "anthropic/claude-sonnet-4-6"
 }

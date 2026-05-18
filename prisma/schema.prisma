@@ -18,13 +18,23 @@ model User {
 }
 
 model Site {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name      String
-  url       String
-  apiKey    String   @unique @default(cuid())
-  connected Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String         @id @default(cuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  url           String
+  apiKey        String         @unique @default(cuid())
+  connected     Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  agentSessions AgentSession[]
+}
+
+model AgentSession {
+  opencodeSessionId String   @id
+  siteId            String
+  site              Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  createdAt         DateTime @default(now())
+
+  @@index([siteId])
 }

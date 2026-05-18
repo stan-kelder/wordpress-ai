@@ -12,8 +12,8 @@ import { classifyAction } from "@/lib/classify-action"
 import type { RiskLevel } from "@/lib/classify-action"
 
 type TraceItem =
-  | { type: "reasoning"; text: string }
-  | { type: "tool"; name: string; input: Record<string, unknown>; result?: string; is_error?: boolean }
+  | { type: "reasoning"; text: string; partId?: string }
+  | { type: "tool"; name: string; input: Record<string, unknown>; result?: string; is_error?: boolean; partId?: string }
 
 interface Message {
   role: "user" | "assistant"
@@ -214,6 +214,22 @@ interface Site {
   connected: boolean
 }
 
+function toolStatusLabel(name: string): string {
+  if (name === "fetch_url") return "Fetching URL..."
+  if (name === "read_file") return "Reading file..."
+  if (name === "write_file") return "Writing file..."
+  if (name === "execute_php") return "Running PHP..."
+  if (name === "list_directory") return "Listing directory..."
+  return "Working..."
+}
+
+function extractPartResult(part: Record<string, unknown>): string {
+  const val = part.result ?? part.output
+  if (val === undefined || val === null) return ""
+  if (typeof val === "string") return val
+  return JSON.stringify(val)
+}
+
 export default function ChatPage() {
   const params = useParams()
   const router = useRouter()
@@ -225,6 +241,7 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [loadingStatus, setLoadingStatus] = useState("Thinking...")
   const [currentTrace, setCurrentTrace] = useState<TraceItem[]>([])
+  const [sessionId, setSessionId] = useState<string | null>(null)
   const [steps, setSteps] = useState<Step[]>([])
   const [sidePanelOpen, setSidePanelOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<SidePanelTab>("preview")
@@ -251,6 +268,7 @@ export default function ChatPage() {
     setSidePanelOpen(false)
     setIsExecuting(false)
     setHighRiskConfirmed(false)
+    setSessionId(null)
   }, [siteId])
 
   useEffect(() => {
@@ -263,11 +281,7 @@ export default function ChatPage() {
     const text = input.trim()
     if (!text || isLoading) return
 
-    const newMessages: Message[] = [
-      ...messages,
-      { role: "user", content: text },
-    ]
-    setMessages(newMessages)
+    setMessages((prev) => [...prev, { role: "user", content: text }])
     setInput("")
     setIsLoading(true)
     setLoadingStatus("Thinking...")
@@ -281,7 +295,7 @@ export default function ChatPage() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ siteId, messages: newMessages }),
+        body: JSON.stringify({ siteId, message: text, sessionId }),
       })
 
       if (!response.ok) {
@@ -294,80 +308,89 @@ export default function ChatPage() {
       const decoder = new TextDecoder()
       let buffer = ""
       let aiText = ""
-      let aiSteps: Step[] = []
+      let currentEvent = ""
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
-
         const lines = buffer.split("\n")
         buffer = lines.pop() ?? ""
 
-        let currentEvent = ""
         for (const line of lines) {
           if (line.startsWith("event: ")) {
-            currentEvent = line.slice(7)
+            currentEvent = line.slice(7).trim()
           } else if (line.startsWith("data: ")) {
             const dataStr = line.slice(6)
             try {
               const parsed = JSON.parse(dataStr) as Record<string, unknown>
 
-              if (currentEvent === "status") {
-                if (parsed.text) setLoadingStatus(parsed.text as string)
-              } else if (currentEvent === "reasoning") {
-                const text = parsed.text as string | undefined
-                if (text) {
-                  traceItems.push({ type: "reasoning", text })
+              if (currentEvent === "session") {
+                setSessionId(parsed.sessionId as string)
+              } else if (currentEvent === "part_update") {
+                const part = parsed.part as Record<string, unknown>
+                const partId = String(part.id ?? "")
+                const partType = String(part.type ?? "")
+
+                if (partType === "text") {
+                  aiText = String(part.text ?? "")
+                } else if (partType === "reasoning") {
+                  const text = String(part.text ?? "")
+                  const idx = traceItems.findIndex((t) => t.partId === partId)
+                  if (idx >= 0) {
+                    traceItems[idx] = { type: "reasoning", text, partId }
+                  } else {
+                    traceItems.push({ type: "reasoning", text, partId })
+                  }
+                  setCurrentTrace([...traceItems])
+                } else if (partType === "tool-invocation" || partType === "tool") {
+                  const name = String((part.toolName ?? part.name) ?? "")
+                  const state = String(part.state ?? "")
+                  const input = ((part.args ?? part.input) ?? {}) as Record<string, unknown>
+                  const idx = traceItems.findIndex((t) => t.partId === partId)
+
+                  if (
+                    state === "pending" ||
+                    state === "running" ||
+                    state === "partial-call" ||
+                    state === "call"
+                  ) {
+                    setLoadingStatus(toolStatusLabel(name))
+                    const item: TraceItem = { type: "tool", name, input, partId }
+                    if (idx >= 0) {
+                      traceItems[idx] = item
+                    } else {
+                      traceItems.push(item)
+                    }
+                  } else {
+                    const result = extractPartResult(part)
+                    const isError = state === "error"
+                    const existing =
+                      idx >= 0
+                        ? (traceItems[idx] as Extract<TraceItem, { type: "tool" }>)
+                        : null
+                    const item: TraceItem = {
+                      type: "tool",
+                      name: existing?.name ?? name,
+                      input: existing?.input ?? input,
+                      result,
+                      is_error: isError,
+                      partId,
+                    }
+                    if (idx >= 0) {
+                      traceItems[idx] = item
+                    } else {
+                      traceItems.push(item)
+                    }
+                  }
                   setCurrentTrace([...traceItems])
                 }
-              } else if (currentEvent === "tool_call") {
-                const name = parsed.name as string
-                const input = parsed.input as Record<string, unknown>
-                traceItems.push({ type: "tool", name, input })
-                setCurrentTrace([...traceItems])
-              } else if (currentEvent === "tool_result") {
-                const content = parsed.content as string
-                const is_error = parsed.is_error as boolean
-                for (let i = traceItems.length - 1; i >= 0; i--) {
-                  const item = traceItems[i]
-                  if (item.type === "tool" && item.result === undefined) {
-                    traceItems[i] = { ...item, result: content, is_error }
-                    break
-                  }
-                }
-                setCurrentTrace([...traceItems])
-              } else if (currentEvent === "context") {
-                console.log("[agent:context]", parsed)
-              } else if (currentEvent === "text") {
-                if (parsed.text !== undefined) aiText = parsed.text as string
-              } else if (currentEvent === "instructions") {
-                if (parsed.instructions !== undefined) {
-                  const incomingInstructions = parsed.instructions as Instruction[]
-                  aiSteps = incomingInstructions.map((inst) => ({
-                    instruction: inst,
-                    riskLevel: classifyAction(inst),
-                    status: "idle" as const,
-                    message: "",
-                    review: null,
-                  }))
-                }
-              } else {
-                if (parsed.text !== undefined) aiText = parsed.text as string
-                if (parsed.instructions !== undefined) {
-                  const incomingInstructions = parsed.instructions as Instruction[]
-                  aiSteps = incomingInstructions.map((inst) => ({
-                    instruction: inst,
-                    riskLevel: classifyAction(inst),
-                    status: "idle" as const,
-                    message: "",
-                    review: null,
-                  }))
-                }
+              } else if (currentEvent === "error") {
+                throw new Error(String(parsed.message ?? "Unknown error"))
               }
-            } catch {
-              // Ignore parse errors
+            } catch (e) {
+              if (currentEvent === "error" && e instanceof Error) throw e
             }
             currentEvent = ""
           }
@@ -378,11 +401,6 @@ export default function ChatPage() {
         ...prev,
         { role: "assistant", content: aiText, trace: [...traceItems] },
       ])
-
-      if (aiSteps.length > 0) {
-        setSteps(aiSteps)
-        setSidePanelOpen(true)
-      }
     } catch (error) {
       setMessages((prev) => [
         ...prev,

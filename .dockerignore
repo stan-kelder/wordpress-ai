@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.env
+.env.local
+.env.production
+.vscode
+.idea
+src
+public
+prisma
+connector-plugin
+*.md
