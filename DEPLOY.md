@@ -13,18 +13,9 @@ The opencode container loads custom tools from `.opencode/tools/`. Each tool's `
 
 ## One-time setup
 
-### 1. Make `wordpress-ai/` a git repo and push to GitHub
+### 1. GitHub repo
 
-```bash
-cd /Users/stankelder/Claude/wordpress-ai
-git init
-git add -A
-git commit -m "initial commit"
-# Create a new repo on github.com (private), then:
-git remote add origin git@github.com:<your-username>/wordpress-ai.git
-git branch -M main
-git push -u origin main
-```
+Already done — pushed to `github.com/stan-kelder/wordpress-ai`. Whenever you change code locally, `git push` and Railway will redeploy.
 
 ### 2. Create a Railway project
 
