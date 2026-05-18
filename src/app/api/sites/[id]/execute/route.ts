@@ -31,8 +31,33 @@ export async function POST(
     return Response.json({ error: "Missing instruction" }, { status: 400 })
   }
 
-  // Security review
-  const review = await reviewInstruction(instruction as Instruction)
+  const inst = instruction as Instruction
+
+  // execute_php was already reviewed in the chat pipeline — proxy directly
+  if (inst.action === "execute_php") {
+    const executeUrl = `${site.url}/wp-json/wordpress-ai/v1/execute`
+    try {
+      const wpResponse = await fetch(executeUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${site.apiKey}`,
+        },
+        body: JSON.stringify(inst),
+        signal: AbortSignal.timeout(15000),
+      })
+      const data: unknown = await wpResponse.json()
+      if (!wpResponse.ok) {
+        return Response.json({ error: "WordPress site returned an error", details: data }, { status: wpResponse.status })
+      }
+      return Response.json({ ...(data as Record<string, unknown>), review: { corrections: [], warnings: [], riskLevel: "high" } })
+    } catch (error) {
+      return Response.json({ error: "Failed to reach WordPress site", message: error instanceof Error ? error.message : "Unknown error" }, { status: 502 })
+    }
+  }
+
+  // Security review for write_file
+  const review = await reviewInstruction(inst)
 
   if (!review.approved) {
     return Response.json(
@@ -55,7 +80,6 @@ export async function POST(
       },
       signal: AbortSignal.timeout(10000),
     })
-    // Backup is best-effort; continue even if it fails
   } catch {
     // Non-fatal — proceed with execute
   }

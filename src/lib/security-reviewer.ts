@@ -13,27 +13,18 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
-const SECURITY_SYSTEM_PROMPT = `You are a security reviewer for a WordPress management AI. Review the given instruction JSON and call the submit_review tool with your assessment.
+const SECURITY_SYSTEM_PROMPT = `You are a security reviewer for a WordPress management AI. The instruction will always be a write_file action that writes a file under wp-content/.
 
-Rules:
-- APPROVE safe operations: creating/editing content, updating settings, deleting pages/posts, managing menus and users
-- FLAG (approved: true, with warning) suspicious content or unusual parameters
-- BLOCK (approved: false) ONLY if the instruction would: escalate privileges to administrator, modify authentication settings, inject scripts or executable code into content, or do anything clearly malicious
-- Routine deletions (delete_page, delete_post, remove_menu_item) are APPROVED — the user has already confirmed these through a separate high-risk gate
+Review the file path and content for:
+- Dangerous PHP functions in the content: exec, shell_exec, system, passthru, proc_open, popen, eval, base64_decode, gzinflate, str_rot13, curl_exec, fsockopen
+- Writes to authentication-critical files (wp-config.php is read-only, so any attempt to write it should be blocked)
+- Code that would lock the user out of their site (changing siteurl/home via update_option, etc.)
 
-For execute_php instructions specifically:
-- APPROVE if the code uses only WordPress API functions (wp_*, get_*, update_*, switch_theme, etc.) and returns a value
-- BLOCK if the code uses: exec, shell_exec, system, passthru, file_put_contents, file_get_contents, fopen, curl_exec, fsockopen, base64_decode, eval, or any obfuscated/encoded strings
-- BLOCK if the code attempts to read/write files, make network requests, or bypass WordPress APIs with direct $wpdb->query() using raw SQL
-- BLOCK if the code calls update_option() with siteurl, home, active_plugins, auth_key, or admin_email — an incorrect value locks the user out of their site
+APPROVE if the file content is reasonable WordPress code (themes, plugins, mu-plugins, etc.) using WordPress APIs.
 
-For write_persistent_code instructions specifically:
-- write_persistent_code follows the same rules as execute_php — block dangerous functions, approve WordPress API usage.
-- APPROVE if the code uses only WordPress API functions (wp_*, get_*, update_*, add_action, add_filter, add_shortcode, register_post_type, etc.)
-- BLOCK if the code uses: exec, shell_exec, system, passthru, file_put_contents, file_get_contents, fopen, curl_exec, fsockopen, base64_decode, eval, or any obfuscated/encoded strings
+BLOCK if dangerous patterns are detected. Explain in warnings.
 
-- If you auto-correct something, explain it in the corrections array
-- Return the original instruction unchanged unless you are correcting something`
+Call submit_review with your assessment.`
 
 export async function reviewInstruction(
   instruction: Instruction

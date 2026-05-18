@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { reviewInstruction } from "@/lib/security-reviewer"
 import Anthropic from "@anthropic-ai/sdk"
 import type {
   MessageParam,
@@ -12,196 +13,128 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
-const SYSTEM_PROMPT = `You are an AI assistant that helps users manage their entire WordPress website through natural language.
+const SYSTEM_PROMPT = `You are a WordPress management assistant with tools to read from and modify a user's WordPress site. Operate like a developer exploring an unfamiliar codebase — explore first, then act.
 
-HOW THIS PLATFORM WORKS — READ CAREFULLY:
-- When you output a JSON instruction block wrapped in \`\`\`json ... \`\`\`, the platform automatically detects it, shows it to the user in a side panel, and the user clicks "Execute" to run it on their WordPress site.
-- Outputting the JSON block IS the action. You do not "execute" anything yourself. You have no execution capability — only the JSON blocks do.
-- NEVER say you "can't execute", "don't have the ability", or that there are "limitations". If the user says "do it" or "execute it", output the JSON instruction blocks.
-- NEVER describe what you're going to do without also outputting the JSON block. Description alone does nothing.
-- NEVER use past tense or say things are already done ("I've created", "Done!", "The page has been updated"). The instructions haven't run yet — the user must click Execute. Always use future tense: "I'll create…", "This will update…", "Here's what I'm going to do…".
+Your tools:
+- read_file: read any file under wp-content/, plus wp-config.php
+- fetch_url: GET any URL and see the rendered HTML
+- execute_php: run PHP in the WordPress context — query DB, call WordPress functions
+- write_file: write a file under wp-content/ (auto-backed up before overwrite)
 
-When the user asks you to make a change:
-1. Give a brief explanation of what you're about to do
-2. Output one or more JSON instruction blocks wrapped in \`\`\`json ... \`\`\`
+Explore before acting: fetch the page, inspect the HTML, check the active theme. Every WordPress site is different — themes, page builders, plugins all vary.
 
-Example for a single change:
-I'll create the About page for you.
-\`\`\`json
-{"action":"create_page","params":{"title":"About","content":"Welcome to our site.","status":"publish"}}
-\`\`\`
+Never ask clarifying questions. Make a reasonable assumption and proceed.
 
-Example for multiple changes:
-I'll do this in 3 steps.
-\`\`\`json
-{"action":"execute_php","params":{"code":"wp_insert_term('Tutorials', 'category'); return 'done';","description":"Create Tutorials category"}}
-\`\`\`
-\`\`\`json
-{"action":"update_page","params":{"id":1,"title":"Home","content":"<h2>Tutorials</h2>[tutorials]","status":"publish"}}
-\`\`\`
-\`\`\`json
-{"action":"write_persistent_code","params":{"slug":"tutorials-admin-menu","code":"add_action('admin_menu', function() { add_menu_page('Tutorials','Tutorials','manage_options','edit.php?post_type=post&category_name=tutorials'); });","description":"Add Tutorials admin tab"}}
-\`\`\`
+When you receive {"staged": true} from execute_php or write_file, the change is queued for user approval. Do not say it is done — tell the user what is staged and awaiting their approval in the panel.
 
-ADDITIONAL RULES:
-- NEVER output a description of a JSON block without actually outputting the block itself.
-- When the user asks to delete something, first use list_pages or list_posts to find the ID, then output the delete instruction.
-- You can output MULTIPLE JSON blocks in one response for multi-step requests.
+Be concise. No bullet lists. One sentence before acting.
 
-AVAILABLE ACTIONS:
-
-Pages:
-- create_page: {"action":"create_page","params":{"title":string,"content":string,"status":"publish"|"draft"}}
-- update_page: {"action":"update_page","params":{"id":number,"title":string,"content":string,"status":"publish"|"draft"}}
-- delete_page: {"action":"delete_page","params":{"id":number}}
-
-Posts:
-- create_post: {"action":"create_post","params":{"title":string,"content":string,"status":"publish"|"draft","category":string}}
-- update_post: {"action":"update_post","params":{"id":number,"title":string,"content":string,"status":"publish"|"draft"}}
-- delete_post: {"action":"delete_post","params":{"id":number}}
-
-Menus:
-- update_menu_item: {"action":"update_menu_item","params":{"menu_id":number,"item_id":number,"title":string,"url":string}}
-- add_menu_item: {"action":"add_menu_item","params":{"menu_id":number,"title":string,"url":string,"object_type":"custom"|"page","object_id":number}}
-- remove_menu_item: {"action":"remove_menu_item","params":{"menu_id":number,"item_id":number}}
-
-WordPress Settings:
-- update_setting: {"action":"update_setting","params":{"option":string,"value":string}}
-
-WooCommerce:
-- update_product: {"action":"update_product","params":{"id":number,"name":string,"price":string,"description":string,"status":"publish"|"draft"}}
-- create_product: {"action":"create_product","params":{"name":string,"price":string,"description":string,"status":"publish"|"draft"}}
-
-Users:
-- create_user: {"action":"create_user","params":{"username":string,"email":string,"role":"subscriber"|"contributor"|"author"|"editor"|"administrator","password":string}}
-- update_user_role: {"action":"update_user_role","params":{"user_id":number,"role":"subscriber"|"contributor"|"author"|"editor"|"administrator"}}
-
-PHP Execution (for advanced operations not covered by the actions above):
-- execute_php: {"action":"execute_php","params":{"code":"<?php ... ?>","description":"one-line description of what this does"}}
-
-Use execute_php ONLY when no JSON action covers what the user needs (e.g. changing the active theme, managing widgets, updating plugin-specific options, bulk operations, taxonomy management, custom field updates). The code runs inside WordPress so you can use any WordPress function: get_option(), update_option(), switch_theme(), wp_get_sidebars_widgets(), update_post_meta(), get_terms(), etc. Keep code concise, use WordPress APIs exclusively, and always return a meaningful value (string or array) so the user sees the result. Do NOT use file system, network, or database functions directly. IMPORTANT: do NOT include <?php or ?> tags in the code — write plain PHP statements only.
-
-Persistent Code (for admin menus, hooks, shortcode definitions, custom post types — anything that needs to run on every WordPress page load):
-- write_persistent_code: {"action":"write_persistent_code","params":{"slug":"unique-kebab-case-identifier","code":"PHP code without tags","description":"what this does"}}
-
-Use write_persistent_code for: add_menu_page(), register_post_type(), add_action(), add_filter(), add_shortcode(), etc. Each slug overwrites its previous block, so re-running with the same slug is safe. Do NOT include <?php tags.
-
-CRITICAL for write_persistent_code — these rules are enforced server-side and will block execution if violated:
-1. NEVER call registration functions at the top level. ALWAYS wrap in the correct hook:
-   - register_post_type(), add_rewrite_rule() → add_action('init', function() { ... });
-   - add_menu_page(), add_submenu_page() → add_action('admin_menu', function() { ... });
-   - add_shortcode() → add_action('init', function() { ... });
-   - wp_enqueue_script(), wp_enqueue_style() → add_action('wp_enqueue_scripts', function() { ... });
-   - register_widget() → add_action('widgets_init', function() { ... });
-2. NEVER use flush_rewrite_rules() — it corrupts permalinks and causes severe performance issues when run on every page load.
-3. NEVER call update_option() with: siteurl, home, active_plugins, auth_key, admin_email — an incorrect value locks the user out of their site.
-
-AVAILABLE QUERY TOOLS:
-- list_pages: lists all published pages
-- list_posts: lists recent posts
-- get_active_plugins: lists installed/active plugins
-- get_menu_structure: returns all menus and their items
-- get_woocommerce_products: lists WooCommerce products (only if WooCommerce is active)
-- get_site_settings: returns key WordPress settings (blogname, blogdescription, admin_email etc)
-- get_users: lists WordPress users
-
-IMPORTANT RULES:
-- You can output MULTIPLE instruction JSON blocks in a single response if the user asks for multiple changes. Each block will be executed in sequence. Plan all steps upfront, output them all at once, and briefly describe what each step does.
-- Use query tools when you need information before making a change.
-- Be concise and helpful.`
+WordPress knowledge:
+- Gutenberg pages: post_content holds serialized block markup. Use wp_update_post() to edit it. Valid core block types: wp:paragraph, wp:heading, wp:html, wp:shortcode, wp:group, wp:columns, wp:buttons, wp:button, wp:image, wp:separator, wp:spacer, wp:list, wp:list-item. NEVER use wp:form, wp:form-wrapper, wp:form-field, wp:form-submit-button — these do not exist in WordPress core and will break the page. For a contact form: use <!-- wp:html --> containing a raw <form> tag with <input> and <button> elements. Do not trust block types found in existing post_content — that content may already contain invalid blocks from previous edits.
+- Elementor pages: layout stored in _elementor_data post meta as JSON. Use update_post_meta() to edit.
+- Detect the builder from fetched HTML: elementor-* classes = Elementor, et_pb_* = Divi, wp-block-* = Gutenberg.
+- execute_php that writes to the database (wp_update_post, update_post_meta, update_option, wp_insert_post, etc.) is staged for approval just like write_file — you will receive {"staged": true}.
+- To list active plugins, run execute_php with: return implode(", ", array_keys(get_option("active_plugins", [])));`
 
 const TOOLS: Tool[] = [
   {
-    name: "list_pages",
+    name: "read_file",
     description:
-      "Fetches a list of existing pages on the WordPress site. Returns an array of pages with their id, title, and url.",
+      "Reads a file from the WordPress installation. Scope: any file under wp-content/, plus read-only access to wp-config.php. Returns the file's path, content, and size. Use this to inspect theme files, plugin code, mu-plugins, uploaded files.",
     input_schema: {
       type: "object" as const,
-      properties: {},
-      required: [],
+      properties: {
+        path: { type: "string", description: "File path relative to the WordPress root, e.g. 'wp-content/themes/twentytwentyfour/front-page.php'" },
+      },
+      required: ["path"],
     },
   },
   {
-    name: "list_posts",
+    name: "fetch_url",
     description:
-      "Fetches a list of recent posts on the WordPress site. Returns an array of posts with their id, title, url, and date.",
+      "Fetches a URL from the WordPress site and returns the rendered HTML. Use this to see what visitors actually see, to verify changes worked, to inspect the markup of pages built with page builders (look for elementor-*, et_pb_*, wp-block-* classes to identify the builder).",
     input_schema: {
       type: "object" as const,
-      properties: {},
-      required: [],
+      properties: {
+        path: { type: "string", description: "Path on the site, e.g. '/' or '/about', or a full URL on the same site" },
+      },
+      required: ["path"],
     },
   },
   {
-    name: "get_active_plugins",
+    name: "execute_php",
     description:
-      "Fetches the list of installed and active plugins on the WordPress site. Returns an array of plugins with their slug, name, and active status.",
+      "Executes PHP code inside the WordPress context. Has access to all WordPress functions (get_posts, get_option, update_option, get_post_meta, wp_insert_post, $wpdb, etc.). The code should return a value that will be shown to you as the result. Do NOT include <?php or ?> tags.",
     input_schema: {
       type: "object" as const,
-      properties: {},
-      required: [],
+      properties: {
+        code: { type: "string", description: "PHP code without opening/closing tags. Use return to send back a value." },
+        description: { type: "string", description: "One-line description of what this code does" },
+      },
+      required: ["code", "description"],
     },
   },
   {
-    name: "get_menu_structure",
+    name: "write_file",
     description:
-      "Fetches all navigation menus and their items from the WordPress site. Returns an array of menus with their id, name, and items (each with id, title, url, order).",
+      "Writes a file under wp-content/. The existing file (if any) is automatically backed up before overwrite. Stages the change for user approval — you receive {staged: true} as confirmation.",
     input_schema: {
       type: "object" as const,
-      properties: {},
-      required: [],
-    },
-  },
-  {
-    name: "get_woocommerce_products",
-    description:
-      "Fetches WooCommerce products from the WordPress site. Only works if WooCommerce is active. Returns an array of products with their id, name, price, and status.",
-    input_schema: {
-      type: "object" as const,
-      properties: {},
-      required: [],
-    },
-  },
-  {
-    name: "get_site_settings",
-    description:
-      "Fetches key WordPress site settings including blogname, blogdescription, admin_email, siteurl, home, and permalink_structure.",
-    input_schema: {
-      type: "object" as const,
-      properties: {},
-      required: [],
-    },
-  },
-  {
-    name: "get_users",
-    description:
-      "Fetches a list of WordPress users. Returns an array of users with their id, username, email, and role.",
-    input_schema: {
-      type: "object" as const,
-      properties: {},
-      required: [],
+      properties: {
+        path: { type: "string", description: "File path, e.g. 'wp-content/mu-plugins/my-customization.php'" },
+        content: { type: "string", description: "Full file contents to write" },
+        description: { type: "string", description: "One-line description of what this file does and why we're writing it" },
+      },
+      required: ["path", "content", "description"],
     },
   },
 ]
+
+const READ_TOOLS = new Set(["read_file", "fetch_url"])
+const WRITE_TOOLS = new Set(["write_file"])
+
+const WRITE_PHP_PATTERNS = [
+  /\bwp_update_post\s*\(/i,
+  /\bwp_insert_post\s*\(/i,
+  /\bwp_delete_post\s*\(/i,
+  /\bwp_trash_post\s*\(/i,
+  /\bupdate_option\s*\(/i,
+  /\bdelete_option\s*\(/i,
+  /\bupdate_post_meta\s*\(/i,
+  /\badd_post_meta\s*\(/i,
+  /\bdelete_post_meta\s*\(/i,
+  /\$wpdb\s*->\s*(insert|update|delete|query)\s*\(/i,
+]
+
+function isWritePhp(code: string): boolean {
+  return WRITE_PHP_PATTERNS.some((p) => p.test(code))
+}
+
+function statusTextForTool(name: string): string {
+  switch (name) {
+    case "read_file": return "Reading file..."
+    case "fetch_url": return "Fetching URL..."
+    case "execute_php": return "Running PHP..."
+    case "write_file": return "Staging file write..."
+    default: return `Calling ${name}...`
+  }
+}
 
 interface ChatMessage {
   role: "user" | "assistant"
   content: string
 }
 
-const QUERY_TOOLS = [
-  "list_pages",
-  "list_posts",
-  "get_active_plugins",
-  "get_menu_structure",
-  "get_woocommerce_products",
-  "get_site_settings",
-  "get_users",
-] as const
+interface StagedInstruction {
+  action: string
+  params: Record<string, unknown>
+}
 
-type QueryToolName = (typeof QUERY_TOOLS)[number]
+const TOOL_RESULT_MAX_CHARS = 15000
 
-function isQueryTool(name: string): name is QueryToolName {
-  return (QUERY_TOOLS as readonly string[]).includes(name)
+function truncateContent(content: string): string {
+  if (content.length <= TOOL_RESULT_MAX_CHARS) return content
+  return content.slice(0, TOOL_RESULT_MAX_CHARS) + "\n...[truncated]"
 }
 
 export async function POST(request: NextRequest) {
@@ -235,16 +168,17 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        // Agentic loop: allow the AI to use tools
         const anthropicMessages: MessageParam[] = messages.map((m) => ({
           role: m.role,
           content: m.content,
         }))
 
         let fullText = ""
+        const stagedInstructions: StagedInstruction[] = []
 
-        // Agentic loop — handle tool calls
         while (true) {
+          sendEvent("context", { messages: anthropicMessages })
+
           const response = await anthropic.messages.create({
             model: "claude-haiku-4-5-20251001",
             max_tokens: 4096,
@@ -253,7 +187,6 @@ export async function POST(request: NextRequest) {
             messages: anthropicMessages,
           })
 
-          // Collect text and tool uses from the response
           let assistantText = ""
           const toolUses: Array<{
             id: string
@@ -273,88 +206,120 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // If there are tool uses, execute them and continue the loop
           if (toolUses.length > 0) {
-            // Add the assistant's response to the message history
+            if (assistantText) sendEvent("reasoning", { text: assistantText })
+
             anthropicMessages.push({
               role: "assistant",
               content: response.content,
             })
 
-            // Execute each tool and collect results
             const toolResults: ToolResultBlockParam[] = []
 
             for (const toolUse of toolUses) {
-              if (isQueryTool(toolUse.name)) {
+              sendEvent("status", { text: statusTextForTool(toolUse.name) })
+              sendEvent("tool_call", { name: toolUse.name, input: toolUse.input })
+
+              const pushResult = (content: string, is_error = false) => {
+                toolResults.push({
+                  type: "tool_result",
+                  tool_use_id: toolUse.id,
+                  content,
+                  is_error,
+                })
+                sendEvent("tool_result", {
+                  name: toolUse.name,
+                  content: content.slice(0, 3000),
+                  is_error,
+                })
+              }
+
+              if (toolUse.name === "execute_php") {
+                const review = await reviewInstruction({
+                  action: "execute_php",
+                  params: toolUse.input,
+                })
+
+                if (!review.approved) {
+                  pushResult(
+                    JSON.stringify({ error: `Blocked by reviewer: ${review.warnings.join(", ") || "no reason given"}` }),
+                    true
+                  )
+                  continue
+                }
+
+                const code = String((review.instruction.params as Record<string, unknown>).code ?? "")
+
+                if (isWritePhp(code)) {
+                  stagedInstructions.push({ action: "execute_php", params: review.instruction.params as Record<string, unknown> })
+                  pushResult(JSON.stringify({ staged: true }))
+                  continue
+                }
+
                 try {
-                  const queryUrl = `${site.url}/wp-json/wordpress-ai/v1/query?tool=${toolUse.name}`
-                  const wpResponse = await fetch(queryUrl, {
-                    method: "GET",
+                  const executeUrl = `${site.url}/wp-json/wordpress-ai/v1/execute`
+                  const wpResponse = await fetch(executeUrl, {
+                    method: "POST",
                     headers: {
+                      "Content-Type": "application/json",
                       Authorization: `Bearer ${site.apiKey}`,
                     },
-                    signal: AbortSignal.timeout(10000),
+                    body: JSON.stringify({
+                      action: "execute_php",
+                      params: review.instruction.params,
+                    }),
+                    signal: AbortSignal.timeout(20000),
+                  })
+                  const data: unknown = await wpResponse.json()
+                  pushResult(truncateContent(JSON.stringify(data)), !wpResponse.ok)
+                } catch {
+                  pushResult(JSON.stringify({ error: "Site unreachable or timed out" }), true)
+                }
+              } else if (READ_TOOLS.has(toolUse.name)) {
+                try {
+                  const queryParams = new URLSearchParams({ tool: toolUse.name })
+                  for (const [k, v] of Object.entries(toolUse.input)) {
+                    queryParams.set(k, String(v))
+                  }
+                  const queryUrl = `${site.url}/wp-json/wordpress-ai/v1/query?${queryParams.toString()}`
+                  const wpResponse = await fetch(queryUrl, {
+                    method: "GET",
+                    headers: { Authorization: `Bearer ${site.apiKey}` },
+                    signal: AbortSignal.timeout(20000),
                   })
 
                   if (wpResponse.ok) {
                     const result = await wpResponse.json()
-                    toolResults.push({
-                      type: "tool_result",
-                      tool_use_id: toolUse.id,
-                      content: JSON.stringify(result),
-                    })
+                    pushResult(truncateContent(JSON.stringify(result)))
                   } else {
-                    toolResults.push({
-                      type: "tool_result",
-                      tool_use_id: toolUse.id,
-                      content: JSON.stringify({ error: `Failed to fetch ${toolUse.name}` }),
-                      is_error: true,
-                    })
+                    const errBody = await wpResponse.text()
+                    pushResult(JSON.stringify({ error: `Failed: ${errBody}` }), true)
                   }
                 } catch {
-                  toolResults.push({
-                    type: "tool_result",
-                    tool_use_id: toolUse.id,
-                    content: JSON.stringify({
-                      error: "Site unreachable or timed out",
-                    }),
-                    is_error: true,
-                  })
+                  pushResult(JSON.stringify({ error: "Site unreachable or timed out" }), true)
                 }
+              } else if (WRITE_TOOLS.has(toolUse.name)) {
+                stagedInstructions.push({ action: toolUse.name, params: toolUse.input })
+                pushResult(JSON.stringify({ staged: true }))
               } else {
-                toolResults.push({
-                  type: "tool_result",
-                  tool_use_id: toolUse.id,
-                  content: JSON.stringify({ error: `Unknown tool: ${toolUse.name}` }),
-                  is_error: true,
-                })
+                pushResult(JSON.stringify({ error: `Unknown tool: ${toolUse.name}` }), true)
               }
             }
 
-            // Add tool results to message history
             anthropicMessages.push({
               role: "user",
               content: toolResults,
             })
 
-            // Continue the loop
             continue
           }
 
-          // No more tool calls — we have the final response
           fullText = assistantText
-
           break
         }
 
-        // Find all JSON blocks and parse them into an instructions array
-        const jsonMatches = [...fullText.matchAll(/```json\n([\s\S]*?)\n```/g)]
-        const instructions = jsonMatches.flatMap((m) => {
-          try { return [JSON.parse(m[1])] } catch { return [] }
-        })
-
         sendEvent("text", { text: fullText })
-        sendEvent("instructions", { instructions })
+        sendEvent("instructions", { instructions: stagedInstructions })
         sendEvent("done", {})
       } catch (error) {
         sendEvent("error", {
