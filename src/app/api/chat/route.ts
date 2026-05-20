@@ -110,7 +110,12 @@ export async function POST(request: NextRequest) {
                 ) {
                   const d = parsed.properties as Record<string, unknown>
                   if (d.sessionID === sessionId) {
-                    send("part_update", { part: d.part })
+                    const part = d.part as Record<string, unknown>
+                    if (part?.type === "step-finish") {
+                      send("cost", { cost: part.cost, tokens: part.tokens })
+                    } else {
+                      send("part_update", { part })
+                    }
                   }
                 }
               }

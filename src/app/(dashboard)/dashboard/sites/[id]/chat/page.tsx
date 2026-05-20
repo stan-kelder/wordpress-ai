@@ -19,6 +19,8 @@ interface Message {
   role: "user" | "assistant"
   content: string
   trace?: TraceItem[]
+  cost?: number
+  tokens?: number
 }
 
 interface Instruction {
@@ -144,64 +146,75 @@ function StepBadge({ status, riskLevel }: { status: Step["status"], riskLevel: R
 
 const PREVIEW_LEN = 400
 
-function ToolRow({ item }: { item: Extract<TraceItem, { type: "tool" }> }) {
-  const [expanded, setExpanded] = useState(false)
+function TraceBar({ trace, cost, tokens }: { trace: TraceItem[], cost?: number, tokens?: number }) {
+  const [open, setOpen] = useState(false)
+  const [expandedReasoning, setExpandedReasoning] = useState<Set<number>>(new Set())
+  if (trace.length === 0) return null
 
-  const keyParam =
-    item.name === "execute_php"
-      ? String(item.input.description ?? "")
-      : String(item.input.path ?? item.input.url ?? "")
+  const stepCount = trace.length
 
   return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-2 font-mono text-xs">
-        <span className="text-muted-foreground">{item.name}</span>
-        {keyParam && <span className="text-foreground/70 truncate max-w-xs">{keyParam}</span>}
-        {item.result === undefined && (
-          <span className="text-muted-foreground animate-pulse">…</span>
+    <div className="mt-2 text-xs text-muted-foreground">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+      >
+        <span>{open ? "▾" : "▸"}</span>
+        <span>{stepCount} {stepCount === 1 ? "step" : "steps"}</span>
+        {(cost !== undefined || tokens !== undefined) && !open && (
+          <span className="ml-2 opacity-60">
+            {cost !== undefined && `$${cost.toFixed(4)}`}
+            {cost !== undefined && tokens !== undefined && " · "}
+            {tokens !== undefined && `${tokens.toLocaleString()} tokens`}
+          </span>
         )}
-        {item.result !== undefined && !item.is_error && (
-          <span className="text-green-600 dark:text-green-400">✓</span>
-        )}
-        {item.result !== undefined && item.is_error && (
-          <span className="text-destructive">✗</span>
-        )}
-      </div>
-      {item.result !== undefined && (
-        <div
-          className={cn(
-            "rounded-md p-2 font-mono text-xs whitespace-pre-wrap break-all",
-            item.is_error
-              ? "bg-destructive/10 text-destructive"
-              : "bg-muted/60 text-muted-foreground"
-          )}
-        >
-          {expanded ? item.result : item.result.slice(0, PREVIEW_LEN)}
-          {item.result.length > PREVIEW_LEN && (
-            <button
-              className="text-primary hover:underline ml-1"
-              onClick={() => setExpanded((v) => !v)}
-            >
-              {expanded
-                ? " ↑ less"
-                : ` … +${item.result.length - PREVIEW_LEN} chars`}
-            </button>
+      </button>
+
+      {open && (
+        <div className="mt-1.5 pl-3 border-l border-border space-y-1.5">
+          {trace.map((item, i) => {
+            if (item.type === "reasoning") {
+              const expanded = expandedReasoning.has(i)
+              return (
+                <div key={i}>
+                  <button
+                    onClick={() => setExpandedReasoning(prev => {
+                      const next = new Set(prev)
+                      expanded ? next.delete(i) : next.add(i)
+                      return next
+                    })}
+                    className="flex items-center gap-1 hover:text-foreground transition-colors italic"
+                  >
+                    <span>{expanded ? "▾" : "▸"}</span>
+                    <span>Thinking...</span>
+                  </button>
+                  {expanded && (
+                    <p className="mt-1 pl-3 text-muted-foreground/70 whitespace-pre-wrap">{item.text}</p>
+                  )}
+                </div>
+              )
+            }
+            const done = item.result !== undefined
+            const label = toolLabel(item.name, item.input, done)
+            return (
+              <div key={i} className="flex items-center gap-1.5">
+                {done ? (
+                  <span className="text-muted-foreground/50">✓</span>
+                ) : (
+                  <span className="animate-pulse">·</span>
+                )}
+                <span className={done ? "" : "animate-pulse"}>{label}</span>
+              </div>
+            )
+          })}
+          {(cost !== undefined || tokens !== undefined) && (
+            <div className="pt-1 opacity-60">
+              {cost !== undefined && `$${cost.toFixed(4)}`}
+              {cost !== undefined && tokens !== undefined && " · "}
+              {tokens !== undefined && `${tokens.toLocaleString()} tokens`}
+            </div>
           )}
         </div>
-      )}
-    </div>
-  )
-}
-
-function TraceDisplay({ trace }: { trace: TraceItem[] }) {
-  return (
-    <div className="space-y-2 mb-2 text-xs">
-      {trace.map((item, i) =>
-        item.type === "reasoning" ? (
-          <p key={i} className="text-muted-foreground italic">{item.text}</p>
-        ) : (
-          <ToolRow key={i} item={item} />
-        )
       )}
     </div>
   )
@@ -214,13 +227,29 @@ interface Site {
   connected: boolean
 }
 
-function toolStatusLabel(name: string): string {
-  if (name === "fetch_url") return "Fetching URL..."
-  if (name === "read_file") return "Reading file..."
-  if (name === "write_file") return "Writing file..."
-  if (name === "execute_php") return "Running PHP..."
-  if (name === "list_directory") return "Listing directory..."
-  return "Working..."
+function toolLabel(name: string, input: Record<string, unknown>, done: boolean): string {
+  if (name === "execute_php") {
+    const desc = String(input.description ?? "").trim()
+    if (desc) return done ? desc : desc + "..."
+    return done ? "Ran PHP" : "Running PHP..."
+  }
+  if (name === "write_file") {
+    const filename = String(input.path ?? "").split("/").pop() || "file"
+    return done ? `Updated ${filename}` : `Updating ${filename}...`
+  }
+  if (name === "read_file") {
+    const filename = String(input.path ?? "").split("/").pop() || "file"
+    return done ? `Read ${filename}` : `Reading ${filename}...`
+  }
+  if (name === "list_directory") {
+    const path = String(input.path ?? "wp-content")
+    return done ? `Explored ${path}` : `Exploring ${path}...`
+  }
+  if (name === "fetch_url") {
+    const path = String(input.path ?? "page")
+    return done ? `Fetched ${path}` : `Fetching ${path}...`
+  }
+  return done ? "Completed step" : "Working..."
 }
 
 function extractPartResult(part: Record<string, unknown>): string {
@@ -309,6 +338,8 @@ export default function ChatPage() {
       let buffer = ""
       let aiText = ""
       let currentEvent = ""
+      let messageCost: number | undefined
+      let messageTokens: number | undefined
 
       while (true) {
         const { done, value } = await reader.read()
@@ -356,7 +387,7 @@ export default function ChatPage() {
                     state === "partial-call" ||
                     state === "call"
                   ) {
-                    setLoadingStatus(toolStatusLabel(name))
+                    setLoadingStatus(toolLabel(name, input, false))
                     const item: TraceItem = { type: "tool", name, input, partId }
                     if (idx >= 0) {
                       traceItems[idx] = item
@@ -386,6 +417,11 @@ export default function ChatPage() {
                   }
                   setCurrentTrace([...traceItems])
                 }
+              } else if (currentEvent === "cost") {
+                const c = parsed.cost as number | undefined
+                const t = parsed.tokens as { total?: number } | undefined
+                if (c !== undefined) messageCost = c
+                if (t?.total !== undefined) messageTokens = t.total
               } else if (currentEvent === "error") {
                 throw new Error(String(parsed.message ?? "Unknown error"))
               }
@@ -399,7 +435,7 @@ export default function ChatPage() {
 
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: aiText, trace: [...traceItems] },
+        { role: "assistant", content: aiText, trace: [...traceItems], cost: messageCost, tokens: messageTokens },
       ])
     } catch (error) {
       setMessages((prev) => [
@@ -527,7 +563,7 @@ export default function ChatPage() {
             {messages.map((msg, i) => (
               <div key={i} className="space-y-2">
                 {msg.role === "assistant" && msg.trace && msg.trace.length > 0 && (
-                  <TraceDisplay trace={msg.trace} />
+                  <TraceBar trace={msg.trace ?? []} cost={msg.cost} tokens={msg.tokens} />
                 )}
                 <div
                   className={cn(
@@ -551,7 +587,7 @@ export default function ChatPage() {
 
             {isLoading && (
               <div className="space-y-2">
-                {currentTrace.length > 0 && <TraceDisplay trace={currentTrace} />}
+                {currentTrace.length > 0 && <TraceBar trace={currentTrace} />}
                 <div className="flex justify-start">
                   <div className="bg-muted rounded-2xl px-4 py-2.5 text-sm text-muted-foreground">
                     {loadingStatus}
