@@ -104,11 +104,11 @@ export async function POST(request: NextRequest) {
                 }
 
                 if (
-                  parsed.name === "message.part.updated.1" &&
-                  typeof parsed.data === "object" &&
-                  parsed.data !== null
+                  parsed.type === "message.part.updated" &&
+                  typeof parsed.properties === "object" &&
+                  parsed.properties !== null
                 ) {
-                  const d = parsed.data as Record<string, unknown>
+                  const d = parsed.properties as Record<string, unknown>
                   if (d.sessionID === sessionId) {
                     send("part_update", { part: d.part })
                   }
@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
           body: JSON.stringify({
             parts: [{ type: "text", text: message }],
           }),
-          signal: AbortSignal.timeout(120000),
+          signal: AbortSignal.timeout(600000),
         })
 
         if (!msgRes.ok) {
