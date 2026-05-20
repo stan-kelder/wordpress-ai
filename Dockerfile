@@ -14,8 +14,7 @@ COPY .opencode ./.opencode
 COPY opencode.json ./opencode.json
 
 # Railway provides PORT; opencode serve defaults to 4096 if unset
-ENV PORT=4096
 EXPOSE 4096
 
 # Bind to 0.0.0.0 so Railway can route to it
-CMD ["sh", "-c", "opencode serve --hostname 0.0.0.0 --port ${PORT:-4096}"]
+CMD ["opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"]

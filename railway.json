@@ -5,7 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "opencode serve --hostname 0.0.0.0 --port ${PORT:-4096}",
+    "startCommand": "opencode serve --hostname 0.0.0.0 --port 4096",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
   }
