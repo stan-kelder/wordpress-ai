@@ -7,7 +7,7 @@ RUN bun install -g opencode-ai@latest
 
 # Install runtime deps for the custom tools (pg, @opencode-ai/plugin, etc.)
 COPY package.json package-lock.json* ./
-RUN bun install --production --no-save --no-frozen-lockfile
+RUN bun install --production --no-save --no-frozen-lockfile --ignore-scripts
 
 # Copy the tools and opencode config
 COPY .opencode ./.opencode
